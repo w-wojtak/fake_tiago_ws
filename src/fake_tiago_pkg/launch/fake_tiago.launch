@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="fake_tiago_pkg" type="fake_pose_publisher.py" name="fake_pose_publisher" output="screen" />
+  <node pkg="fake_tiago_pkg" type="fake_gripper_publisher.py" name="fake_gripper_publisher" output="screen" />
+</launch>

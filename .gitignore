@@ -1,0 +1,19 @@
+# catkin / ROS build outputs
+/build/
+/devel/
+/logs/
+/install/
+
+# python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# editors / OS
+.vscode/
+.DS_Store
+*.swp
+
+# data / outputs (keep data out of git, you can save processed results separately)
+data_basic/
+data/

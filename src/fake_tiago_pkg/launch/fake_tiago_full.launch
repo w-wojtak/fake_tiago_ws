@@ -1,0 +1,9 @@
+<launch>
+    <!-- Fake Publishers -->
+    <node pkg="fake_tiago_pkg" type="fake_pose_publisher.py" name="fake_pose_publisher" output="screen" />
+    <node pkg="fake_tiago_pkg" type="fake_gripper_publisher.py" name="fake_gripper_publisher" output="screen" />
+
+    <!-- Listeners / Your Nodes -->
+    <node pkg="fake_tiago_pkg" type="pose_listener.py" name="pose_listener" output="screen" />
+    <node pkg="fake_tiago_pkg" type="gripper_listener.py" name="gripper_listener" output="screen" />
+</launch>
