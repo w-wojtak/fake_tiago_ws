@@ -4,6 +4,7 @@
 ROS1 node that translates object detections into DNF-compatible input matrices.
 Publishes combined matrices on /dnf_inputs as Float32MultiArray messages.
 Subscribes to /object_detections (std_msgs/String, JSON format).
+Detects object movements (pickups) greater than 10cm and generates Gaussian inputs.
 """
 
 import rospy
@@ -33,17 +34,21 @@ class VisionToDNF:
         self.width = 2.0
         self.duration = 1.0  # 1 second duration
 
-        # Object → Gaussian center mapping
+        # Object → Gaussian center mapping (DNF spatial positions)
         self.object_positions = {'base': -60, 'load': -20, 'bearing': 20, 'motor': 40}
         
         # Store last known positions for movement detection
-        self.last_positions = {obj: None for obj in self.object_positions}
-        self.movement_threshold = 0.05
-        self.movement_detected = set()
+        self.last_positions = {}  # Will be populated as objects are detected
+        
+        # --- ADJUSTED ---
+        # Single threshold for detecting a pickup (10cm = 0.1m)
+        self.pickup_detection_threshold = 0.1  # meters
+        
+        # Track which objects have been picked up to ensure a one-time trigger
+        self.picked_up_objects = set()
 
-        # Lists to store active gaussians for both matrices
-        self.active_gaussians_matrix1 = []
-        self.active_gaussians_matrix2 = []
+        # Lists to store active gaussians
+        self.active_gaussians = []
 
         # Initialize input matrices
         self.input_matrix1 = np.zeros((len(self.t), len(self.x)))
@@ -60,36 +65,50 @@ class VisionToDNF:
         self.timer = rospy.Timer(rospy.Duration(1.0), self.publish_slices)
 
         rospy.loginfo("Vision→DNF node started, listening to /object_detections.")
+        rospy.loginfo(f"Pickup detection threshold set to: {self.pickup_detection_threshold}m (10cm)")
 
     def gaussian(self, center=0, amplitude=1.0, width=1.0):
         """Generate Gaussian profile centered at 'center'"""
         return amplitude * np.exp(-((self.x - center) ** 2) / (2 * (width ** 2)))
 
-    def check_movement(self, object_name, new_x, new_y):
-        """Check if object has moved beyond threshold"""
-        if self.last_positions[object_name] is None:
-            # First detection - treat as movement
-            self.last_positions[object_name] = {'x': new_x, 'y': new_y}
-            return True
+    def calculate_movement(self, old_pos, new_pos):
+        """Calculate the Euclidean distance between two 3D positions"""
+        dx = new_pos['x'] - old_pos['x']
+        dy = new_pos['y'] - old_pos['y']
+        dz = new_pos['z'] - old_pos['z']
+        return np.sqrt(dx**2 + dy**2 + dz**2)
+
+    def check_for_pickup(self, object_name, new_position):
+        """
+        Check if an object has moved beyond the pickup threshold.
+        Returns True if a pickup is detected, False otherwise.
+        """
+        # First time seeing this object? Store its position and do nothing.
+        if object_name not in self.last_positions:
+            self.last_positions[object_name] = new_position.copy()
+            rospy.loginfo(f"First detection of '{object_name}' at ({new_position['x']:.3f}, {new_position['y']:.3f}, {new_position['z']:.3f})")
+            return False
         
-        last_x = self.last_positions[object_name]['x']
-        last_y = self.last_positions[object_name]['y']
+        # Calculate movement distance
+        old_pos = self.last_positions[object_name]
+        distance = self.calculate_movement(old_pos, new_position)
         
-        dx = abs(new_x - last_x)
-        dy = abs(new_y - last_y)
-        
-        if dx > self.movement_threshold or dy > self.movement_threshold:
-            self.last_positions[object_name] = {'x': new_x, 'y': new_y}
+        # Check if movement exceeds the pickup threshold
+        if distance > self.pickup_detection_threshold:
+            self.last_positions[object_name] = new_position.copy()
             return True
         
         return False
 
     def add_gaussian_input(self, object_name):
         """Add a gaussian input for the specified object to both matrices"""
+        if object_name not in self.object_positions:
+            rospy.logwarn(f"Unknown object '{object_name}' - skipping Gaussian generation")
+            return
+            
         current_time = self.t[self.current_time_index]
         t_start = current_time
         t_stop = t_start + self.duration
-        
         center = self.object_positions[object_name]
         
         gaussian_params = {
@@ -97,46 +116,35 @@ class VisionToDNF:
             'amplitude': self.amplitude,
             'width': self.width,
             't_start': t_start,
-            't_stop': t_stop
+            't_stop': t_stop,
         }
         
-        self.active_gaussians_matrix1.append(gaussian_params.copy())
-        self.active_gaussians_matrix2.append(gaussian_params.copy())
+        # Add the same Gaussian to the list for both matrices
+        self.active_gaussians.append(gaussian_params.copy())
         
         elapsed = time() - self.start_time if self.start_time else 0
-        rospy.loginfo(f"Added gaussian for '{object_name}' at x={center}, sim_t={t_start:.1f}s (elapsed={elapsed:.1f}s)")
+        rospy.loginfo(f"Added PICKUP gaussian for '{object_name}' at x={center}, "
+                     f"sim_t={t_start:.1f}s (elapsed={elapsed:.1f}s)")
 
     def update_input_matrices(self):
         """Update both input matrices based on their active gaussians"""
         current_time = self.t[self.current_time_index]
         
-        # Update matrix 1
+        # Reset the current time slice for both matrices
         self.input_matrix1[self.current_time_index] = np.zeros(len(self.x))
-        active_gaussians_copy1 = self.active_gaussians_matrix1.copy()
-        
-        for gaussian in active_gaussians_copy1:
-            if gaussian['t_start'] <= current_time <= gaussian['t_stop']:
-                self.input_matrix1[self.current_time_index] += self.gaussian(
-                    center=gaussian['center'],
-                    amplitude=gaussian['amplitude'],
-                    width=gaussian['width']
-                )
-            elif current_time > gaussian['t_stop']:
-                self.active_gaussians_matrix1.remove(gaussian)
-
-        # Update matrix 2
         self.input_matrix2[self.current_time_index] = np.zeros(len(self.x))
-        active_gaussians_copy2 = self.active_gaussians_matrix2.copy()
         
-        for gaussian in active_gaussians_copy2:
-            if gaussian['t_start'] <= current_time <= gaussian['t_stop']:
-                self.input_matrix2[self.current_time_index] += self.gaussian(
-                    center=gaussian['center'],
-                    amplitude=gaussian['amplitude'],
-                    width=gaussian['width']
-                )
-            elif current_time > gaussian['t_stop']:
-                self.active_gaussians_matrix2.remove(gaussian)
+        # Filter out expired Gaussians and apply active ones
+        active_gaussians_now = []
+        for g in self.active_gaussians:
+            if current_time <= g['t_stop']:
+                active_gaussians_now.append(g)
+                if g['t_start'] <= current_time:
+                    profile = self.gaussian(center=g['center'], amplitude=g['amplitude'], width=g['width'])
+                    self.input_matrix1[self.current_time_index] += profile
+                    self.input_matrix2[self.current_time_index] += profile
+        
+        self.active_gaussians = active_gaussians_now
 
     def detection_callback(self, msg):
         """Callback for object detection messages"""
@@ -148,25 +156,25 @@ class VisionToDNF:
                 object_name = detection.get('object', 'Unknown')
                 position = detection.get('position', {})
                 
-                x = position.get('x', 0.0)
-                y = position.get('y', 0.0)
+                # Check if this is a known object
+                if object_name not in self.object_positions:
+                    continue
                 
-                if object_name in self.object_positions:
-                    if object_name not in self.movement_detected:
-                        if self.check_movement(object_name, x, y):
-                            elapsed = time() - self.start_time if self.start_time else 0
-                            rospy.loginfo(f"Movement detected for '{object_name}' (elapsed={elapsed:.1f}s)")
-                            self.add_gaussian_input(object_name)
-                            self.movement_detected.add(object_name)
-            
-            self.update_input_matrices()
+                # Check if the object was picked up and hasn't been triggered before
+                if self.check_for_pickup(object_name, position) and object_name not in self.picked_up_objects:
+                    # Object was picked up!
+                    elapsed = time() - self.start_time if self.start_time else 0
+                    
+                    rospy.loginfo(f"PICKUP DETECTED: '{object_name}' moved more than {self.pickup_detection_threshold}m (elapsed={elapsed:.1f}s)")
+                    
+                    self.add_gaussian_input(object_name)
+                    self.picked_up_objects.add(object_name)
             
         except Exception as e:
             rospy.logerr(f"Error processing detection message: {e}")
 
     def publish_slices(self, event):
         """Publish combined input matrices for the current timestep"""
-        # Initialize start time on first publish
         if self.start_time is None:
             self.start_time = time()
         
@@ -183,29 +191,27 @@ class VisionToDNF:
             msg.data = [item for sublist in combined_input for item in sublist]
             self.pub_inputs.publish(msg)
 
-            # Calculate elapsed time
             elapsed = time() - self.start_time
             sim_time = self.t[self.current_time_index]
             
             rospy.loginfo(
                 f"Published [elapsed={elapsed:.1f}s, sim_t={sim_time:.1f}s] | "
                 f"Max: m1={self.input_matrix1[self.current_time_index].max():.2f}, "
-                f"m2={self.input_matrix2[self.current_time_index].max():.2f}"
+                f"m2={self.input_matrix2[self.current_time_index].max():.2f} | "
+                f"Picked: {len(self.picked_up_objects)}/4"
             )
 
             self.current_time_index += 1
         else:
-            rospy.loginfo("Completed publishing all time slices.")
+            rospy.loginfo(f"Completed publishing all time slices. Total objects picked up: {len(self.picked_up_objects)}")
             self.timer.shutdown()
-
 
 def main():
     try:
-        node = VisionToDNF()
+        VisionToDNF()
         rospy.spin()
     except rospy.ROSInterruptException:
         pass
-
 
 if __name__ == '__main__':
     main()

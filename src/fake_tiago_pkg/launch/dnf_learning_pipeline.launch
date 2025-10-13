@@ -1,33 +1,45 @@
 <launch>
-  <!-- ========================================================= -->
-  <!--  Launch DNF Learning Model, Detection-to-DNF Bridge, and  -->
-  <!--  Fake Vision Publisher for testing                        -->
-  <!-- ========================================================= -->
 
-  <!-- 1 DNF Model Node -->
-  <node
-    pkg="fake_tiago_pkg"
-    type="dnf_model_learning_simple_node.py"
-    name="dnf_model_learning_simple_node"
-    output="screen"
-    cwd="node"
-  />
+    <!-- ======================================================================================= -->
+    <!-- CONFIGURATION SWITCH: Choose the vision source when launching.                         -->
+    <!-- ======================================================================================= -->
+    <arg name="vision_source" default="ar" doc="Vision source: 'simple', 'ar', or 'real'"/>
 
-  <!-- 2 Detection → DNF Translator -->
-  <node
-    pkg="fake_tiago_pkg"
-    type="vision_to_dnf_node.py"
-    name="vision_to_dnf_node"
-    output="screen"
-    cwd="node"
-  />
 
-  <!-- 3 Fake Vision Publisher -->
-  <node
-    pkg="fake_tiago_pkg"
-    type="fake_vision_publisher_node.py"
-    name="fake_vision_publisher_node"
-    output="screen"
-    cwd="node"
-  />
+    <!-- ======================================================================================= -->
+    <!-- VISION SOURCE NODES (Only one of these will launch)                                     -->
+    <!-- ======================================================================================= -->
+
+    <!-- Option 1: The simple JSON publisher. Publishes directly to /object_detections -->
+    <node name="fake_vision_publisher_node" pkg="fake_tiago_pkg" type="fake_vision_publisher_node.py" output="screen"
+          if="$(eval arg('vision_source') == 'simple')" />
+
+    <!-- Option 2: The fake AR marker publisher. Publishes to /ar_pose_marker -->
+    <node name="fake_ar_publisher_node" pkg="fake_tiago_pkg" type="fake_ar_publisher.py" output="screen"
+          if="$(eval arg('vision_source') == 'ar')" />
+
+    <!-- Option 3: The real robot's vision system (for future use). Publishes to /ar_pose_marker -->
+    <!-- <node name="ar_track_alvar_node" pkg="ar_track_alvar" type="individualMarkersNoKinect" output="screen"
+          if="$(eval arg('vision_source') == 'real')" /> -->
+          
+          
+    <!-- ======================================================================================= -->
+    <!-- TRANSLATOR & CORE DNF NODES                                                             -->
+    <!-- ======================================================================================= -->
+
+    <!--
+      THE TRANSLATOR BRIDGE NODE
+      This node is launched UNLESS the vision_source is 'simple', because the 'simple'
+      publisher already speaks the correct language (JSON on /object_detections).
+      For 'ar' and 'real', this node is ESSENTIAL.
+    -->
+    <node name="robot_vision_bridge_node" pkg="fake_tiago_pkg" type="robot_vision_bridge.py" output="screen"
+          unless="$(eval arg('vision_source') == 'simple')" />
+
+    <!-- The node that listens to /object_detections and creates DNF inputs. This always runs. -->
+    <node name="vision_to_dnf_node" pkg="fake_tiago_pkg" type="vision_to_dnf_node.py" output="screen" />
+
+    <!-- The core DNF learning node. This always runs. -->
+    <node name="dnf_model_learning_simple_node" pkg="fake_tiago_pkg" type="dnf_model_learning_simple_node.py" output="screen" />
+
 </launch>
