@@ -1,54 +1,50 @@
-# DNF Sequential Learning System - Demo Scenarios
+# DNF Sequential Learning Demo
 
-## Demo 1: Basic 4-Object Sequence
+This ROS package demonstrates a system that learns a sequence of object pickups using Dynamic Neural Fields (DNFs).
 
-This demo shows how to use the DNF learning system with a simple 4-object assembly sequence (base → load → bearing → motor).
+## Running the Learning Demo
 
-### Part 1: Learning Phase
+The main launch file, `dnf_learning_pipeline.launch`, uses the `vision_source` argument to switch between different simulated vision inputs.
 
-**Launch**: `roslaunch fake_tiago_pkg dnf_basic_learning.launch`
+### Mode 1: `ar` (Mock QR Code Detector)
 
-**What happens**: The system observes 4 object detections in sequence and learns the temporal pattern using Dynamic Neural Fields.
+This is the primary mode for testing the full data pipeline. It simulates the output of a QR code detector (`ar_track_alvar`), which is then translated by the `robot_vision_bridge_node`. This is ideal for ensuring the integration between vision and the DNF system is working correctly.
 
-**Nodes**:
+`roslaunch fake_tiago_pkg dnf_learning_pipeline.launch vision_source:=ar`
 
-1. **`fake_vision_publisher_node`** (for testing only)
-   - Simulates object detections at scheduled times (t=2s, 5s, 8s, 11s)
-   - Publishes to `/object_detections`
-   - *Replace with TIAGo's vision in real experiments*
 
-2. **`vision_to_dnf_node`** (bridge)
-   - Converts detections → Gaussian inputs at fixed positions (base=-60, load=-20, bearing=20, motor=40)
-   - Publishes to `/dnf_inputs` at 1 Hz (0.1s simulation timesteps)
+###  Mode 2: simple (Direct JSON Publisher)
+This is a minimal simulator for quick demos or for debugging the DNF system in isolation. It bypasses the bridge node and publishes the final JSON format directly, allowing you to test the DNF logic without any vision pipeline components.
 
-3. **`dnf_model_learning_simple_node`** (learning core)
-   - Runs two DNF fields: Sequence Memory (u_sm) + Task Duration (u_d)
-   - Shows real-time visualization
-   - Saves learned fields to `data_basic/` on completion (150s wall-time = 15s simulation)
 
-**Expected result**: The sequence memory field learns the spatial-temporal pattern of the 4 objects.
+`roslaunch fake_tiago_pkg dnf_learning_pipeline.launch vision_source:=simple`
 
----
+### System Architecture
+The data pipeline changes based on the selected mode:
 
-### Part 2: Recall Phase
+ar mode pipeline:
+fake_ar_publisher → /ar_pose_marker → robot_vision_bridge → /object_detections → vision_to_dnf
 
-*[To be added]*
+simple mode pipeline:
+fake_vision_publisher → /object_detections → vision_to_dnf
 
----
+### Integrating a Custom Vision System
+To interface a real or custom vision system with this pipeline, two topics are used to connect the components:
 
-## Timing Notes
+/ar_pose_marker (Input to the Bridge):
+A vision node (e.g., ar_track_alvar) should publish ar_track_alvar_msgs/AlvarMarkers to this topic. It is crucial that marker poses are in a stable, robot-centric coordinate frame (e.g., base_link).
 
-- **Wall-clock**: 1s between updates
-- **Simulation**: 0.1s timesteps (10x slower than real-time)
-- First detection at t=2.0s (simulation) = 20s (wall-clock)
+/object_detections (Input to the DNF System):
+The provided robot_vision_bridge_node automatically translates the marker data into the simple JSON format below. This is the final input consumed by the DNF system.
 
-## Using Real Vision
-
-Replace `fake_vision_publisher_node` with TIAGo's vision. Required message format:
-
-```json
+```JSON
 {
+  "timestamp": 123456.78,
   "detections": [
-    {"object": "base", "position": {"x": -60.0, "y": 0.0}}
+    {
+      "object": "base",
+      "position": {"x": -0.60, "y": 0.25, "z": 0.02}
+    }
   ]
 }
+```
