@@ -10,6 +10,7 @@ import rospy
 import numpy as np
 import json
 from std_msgs.msg import Float32MultiArray, String
+from time import time
 
 class VisionToDNF:
     def __init__(self):
@@ -51,6 +52,9 @@ class VisionToDNF:
 
         # Initialize the current time index for publishing
         self.current_time_index = 0
+        
+        # Track actual elapsed time
+        self.start_time = None
 
         # Timer to publish every 1 second
         self.timer = rospy.Timer(rospy.Duration(1.0), self.publish_slices)
@@ -99,7 +103,8 @@ class VisionToDNF:
         self.active_gaussians_matrix1.append(gaussian_params.copy())
         self.active_gaussians_matrix2.append(gaussian_params.copy())
         
-        rospy.loginfo(f"Added gaussian for '{object_name}' at x={center}, t={t_start:.2f}s")
+        elapsed = time() - self.start_time if self.start_time else 0
+        rospy.loginfo(f"Added gaussian for '{object_name}' at x={center}, sim_t={t_start:.1f}s (elapsed={elapsed:.1f}s)")
 
     def update_input_matrices(self):
         """Update both input matrices based on their active gaussians"""
@@ -149,7 +154,8 @@ class VisionToDNF:
                 if object_name in self.object_positions:
                     if object_name not in self.movement_detected:
                         if self.check_movement(object_name, x, y):
-                            rospy.loginfo(f"Movement detected for {object_name}")
+                            elapsed = time() - self.start_time if self.start_time else 0
+                            rospy.loginfo(f"Movement detected for '{object_name}' (elapsed={elapsed:.1f}s)")
                             self.add_gaussian_input(object_name)
                             self.movement_detected.add(object_name)
             
@@ -160,6 +166,10 @@ class VisionToDNF:
 
     def publish_slices(self, event):
         """Publish combined input matrices for the current timestep"""
+        # Initialize start time on first publish
+        if self.start_time is None:
+            self.start_time = time()
+        
         if self.current_time_index < len(self.t):
             self.update_input_matrices()
             
@@ -173,10 +183,14 @@ class VisionToDNF:
             msg.data = [item for sublist in combined_input for item in sublist]
             self.pub_inputs.publish(msg)
 
+            # Calculate elapsed time
+            elapsed = time() - self.start_time
+            sim_time = self.t[self.current_time_index]
+            
             rospy.loginfo(
-                f"Published t={self.t[self.current_time_index]:.2f}s, "
-                f"Max matrix1: {self.input_matrix1[self.current_time_index].max():.2f}, "
-                f"Max matrix2: {self.input_matrix2[self.current_time_index].max():.2f}"
+                f"Published [elapsed={elapsed:.1f}s, sim_t={sim_time:.1f}s] | "
+                f"Max: m1={self.input_matrix1[self.current_time_index].max():.2f}, "
+                f"m2={self.input_matrix2[self.current_time_index].max():.2f}"
             )
 
             self.current_time_index += 1
