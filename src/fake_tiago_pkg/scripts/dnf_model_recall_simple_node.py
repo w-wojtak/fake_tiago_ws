@@ -25,6 +25,11 @@ class DNFRecallNode:
         # Threading lock for concurrency
         self._lock = threading.Lock()
 
+        # --- Timing ---
+        self.start_time = rospy.Time.now()
+        self.current_sim_step = 0
+        rospy.loginfo("Recall node initialized. Timer started.")
+
         # Publisher for threshold crossings
         self.publisher = rospy.Publisher('threshold_crossings', Float32MultiArray, queue_size=10)
 
@@ -154,6 +159,8 @@ class DNFRecallNode:
     def process_inputs(self, msg):
         """Process input matrices from subscriber."""
         try:
+            elapsed_time = (rospy.Time.now() - self.start_time).to_sec()
+            rospy.loginfo(f"[{elapsed_time:.2f}s] Received external DNF input on topic '{self.subscription.name}'.")
             data = np.array(msg.data)
             n = len(data) // 3
 
@@ -175,6 +182,10 @@ class DNFRecallNode:
     # ------------------ Core Recall ------------------
     def perform_recall(self):
         with self._lock:
+            # Increment simulation time step and calculate current times
+            self.current_sim_step += 1
+            elapsed_time = (rospy.Time.now() - self.start_time).to_sec()
+            current_sim_time = self.current_sim_step * self.dt
             # --- Compute convolutions using FFTs ---
             def conv(field, w_hat):
                 f = np.heaviside(field - self.theta_act, 1)
@@ -213,7 +224,10 @@ class DNFRecallNode:
             for i, idx in enumerate(input_indices):
                 pos = input_positions[i]
                 if not self.threshold_crossed[pos] and self.u_act[idx] > self.theta_act:
-                    rospy.loginfo(f"Threshold crossed at position {pos} with u_act={self.u_act[idx]:.2f}")
+                    rospy.loginfo(
+                    f"[{elapsed_time:.2f}s | Sim Time: {current_sim_time:.1f}s] "
+                    f"PREDICTION: Threshold crossed at position {pos} (u_act={self.u_act[idx]:.2f})"
+                    )
                     msg = Float32MultiArray()
                     msg.data = [float(pos)]
                     self.publisher.publish(msg)
@@ -236,6 +250,8 @@ class DNFRecallNode:
 
     # ------------------ Save data ------------------
     def save_all_data(self):
+        elapsed_time = (rospy.Time.now() - self.start_time).to_sec()
+        rospy.loginfo(f"[{elapsed_time:.2f}s] Shutting down. Saving field data.")
         save_field(self.u_wm, "working_memory")
         save_node_history(self)
 
