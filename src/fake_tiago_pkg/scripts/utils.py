@@ -33,10 +33,19 @@ def load_task_duration(data_dir, filename=None):
     print(f"Loaded task duration from {filename}, size: {data.size}, max: {data.max()}")
     return data
 
-def format_axis(ax, title, ylabel, xticks, xticklabels, vlines=None, ylim=(-5,5)):
+# Inside utils.py
+
+def format_axis(ax, title, ylabel, xticks, xticklabels, vlines=None, ylim=(-5, 5), xlim=None):
     ax.set_title(title)
     ax.set_ylabel(ylabel)
-    ax.set_xlim(min(xticks), max(xticks))
+ 
+    if xlim is not None:
+        # If xlim is provided, use it.
+        ax.set_xlim(*xlim)
+    else:
+        # Otherwise, fall back to the old behavior (fit to ticks).
+        ax.set_xlim(min(xticks), max(xticks))
+
     ax.set_ylim(*ylim)
     ax.set_xticks(xticks)
     ax.set_xticklabels(xticklabels, rotation=45)

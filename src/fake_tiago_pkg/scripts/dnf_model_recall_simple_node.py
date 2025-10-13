@@ -60,13 +60,16 @@ class DNFRecallNode:
         object_positions = [-60, -40, -20, 0, 20, 40, 60]
         object_labels = ['base', 'blue box', 'load', 'tool 1', 'bearing', 'motor', 'tool 2']
 
-        # Use utils.format_axis for all axes
-        self.ax1 = format_axis(self.ax1, "Action Onset Field", "u_act(x)", object_positions, object_labels, object_positions)
-        self.ax2 = format_axis(self.ax2, "Simulation Field", "u_sim(x)", object_positions, object_labels, object_positions)
-        self.ax3 = format_axis(self.ax3, "Working Memory Field", "u_wm(x)", object_positions, object_labels, object_positions)
-        self.ax4 = format_axis(self.ax4, "Feedback 1 Field", "u_f1(x)", object_positions, object_labels, object_positions)
-        self.ax5 = format_axis(self.ax5, "Feedback 2 Field", "u_f2(x)", object_positions, object_labels, object_positions)
-        self.ax6 = format_axis(self.ax6, "Error Field", "u_error(x)", object_positions, object_labels, object_positions)
+        # Define the desired limits once
+        desired_xlim = (self.x.min(), self.x.max()) # This is robust, e.g., (-80, 80)
+
+        # Pass the new xlim argument to each call
+        self.ax1 = format_axis(self.ax1, "Action Onset Field", "u_act(x)", object_positions, object_labels, xlim=desired_xlim)
+        self.ax2 = format_axis(self.ax2, "Simulation Field", "u_sim(x)", object_positions, object_labels, xlim=desired_xlim)
+        self.ax3 = format_axis(self.ax3, "Working Memory Field", "u_wm(x)", object_positions, object_labels, xlim=desired_xlim)
+        self.ax4 = format_axis(self.ax4, "Feedback 1 Field", "u_f1(x)", object_positions, object_labels, xlim=desired_xlim)
+        self.ax5 = format_axis(self.ax5, "Feedback 2 Field", "u_f2(x)", object_positions, object_labels, xlim=desired_xlim)
+        self.ax6 = format_axis(self.ax6, "Error Field", "u_error(x)", object_positions, object_labels, xlim=desired_xlim)
 
         # Initialize line objects
         self.line_act, = self.ax1.plot(self.x, np.zeros_like(self.x), label="u_act")
@@ -139,7 +142,7 @@ class DNFRecallNode:
         self.input_agent_robot_feedback = np.zeros_like(self.x)
 
         # Threshold tracker
-        self.threshold_crossed = {pos: False for pos in [-40, 0, 40]}
+        self.threshold_crossed = {pos: False for pos in [-60, -20, 20, 40]}
 
     # ------------------ ROS Callbacks ------------------
     def timer_callback(self, event):
@@ -198,7 +201,7 @@ class DNFRecallNode:
             self.h_u_amem += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
 
             # --- Threshold detection and history ---
-            input_positions = [-40, 0, 40]
+            input_positions = [-60, -20, 20, 40]
             input_indices = [np.argmin(np.abs(self.x - pos)) for pos in input_positions]
 
             self.u_act_history.append([self.u_act[idx] for idx in input_indices])
