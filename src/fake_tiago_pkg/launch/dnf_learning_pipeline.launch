@@ -1,0 +1,33 @@
+<launch>
+  <!-- ========================================================= -->
+  <!--  Launch DNF Learning Model, Detection-to-DNF Bridge, and  -->
+  <!--  Fake Vision Publisher for testing                        -->
+  <!-- ========================================================= -->
+
+  <!-- 1 DNF Model Node -->
+  <node
+    pkg="fake_tiago_pkg"
+    type="dnf_model_learning_simple_node.py"
+    name="dnf_model_learning_simple_node"
+    output="screen"
+    cwd="node"
+  />
+
+  <!-- 2 Detection → DNF Translator -->
+  <node
+    pkg="fake_tiago_pkg"
+    type="vision_to_dnf_node.py"
+    name="vision_to_dnf_node"
+    output="screen"
+    cwd="node"
+  />
+
+  <!-- 3 Fake Vision Publisher -->
+  <node
+    pkg="fake_tiago_pkg"
+    type="fake_vision_publisher_node.py"
+    name="fake_vision_publisher_node"
+    output="screen"
+    cwd="node"
+  />
+</launch>
