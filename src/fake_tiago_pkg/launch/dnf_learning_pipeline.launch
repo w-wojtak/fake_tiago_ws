@@ -1,45 +1,29 @@
 <launch>
+    <!-- Argument to select vision source. For realistic learning, 'ar' is required. -->
+    <arg name="vision_source" default="ar" doc="Vision source: 'simple' or 'ar'"/>
 
     <!-- ======================================================================================= -->
-    <!-- CONFIGURATION SWITCH: Choose the vision source when launching.                         -->
-    <!-- ======================================================================================= -->
-    <arg name="vision_source" default="ar" doc="Vision source: 'simple', 'ar', or 'real'"/>
-
-
-    <!-- ======================================================================================= -->
-    <!-- VISION SOURCE NODES (Only one of these will launch)                                     -->
+    <!-- HUMAN & WORLD SIMULATION (The "Ground Truth" for Learning)                              -->
     <!-- ======================================================================================= -->
 
-    <!-- Option 1: The simple JSON publisher. Publishes directly to /object_detections -->
-    <node name="fake_vision_publisher_node" pkg="fake_tiago_pkg" type="fake_vision_publisher_node.py" output="screen"
-          if="$(eval arg('vision_source') == 'simple')" />
+    <!-- This new node simulates a human picking up objects with realistic timing. -->
+    <node name="human_action_simulator_node" pkg="fake_tiago_pkg" type="human_action_simulator.py" output="screen" />
 
-    <!-- Option 2: The fake AR marker publisher. Publishes to /ar_pose_marker -->
-    <node name="fake_ar_publisher_node" pkg="fake_tiago_pkg" type="fake_ar_publisher.py" output="screen"
-          if="$(eval arg('vision_source') == 'ar')" />
+    <!-- The reactive AR publisher, which reflects the state of the world. -->
+    <node name="fake_ar_publisher_node" pkg="fake_tiago_pkg" type="fake_ar_publisher.py" output="screen" />
 
-    <!-- Option 3: The real robot's vision system (for future use). Publishes to /ar_pose_marker -->
-    <!-- <node name="ar_track_alvar_node" pkg="ar_track_alvar" type="individualMarkersNoKinect" output="screen"
-          if="$(eval arg('vision_source') == 'real')" /> -->
+
+    <!-- ======================================================================================= -->
+    <!-- VISION & DNF LEARNING PIPELINE (Observes the simulation)                                -->
+    <!-- ======================================================================================= -->
+
+    <!-- Vision Bridge (translates AR markers to simple JSON) -->
+    <node name="robot_vision_bridge_node" pkg="fake_tiago_pkg" type="robot_vision_bridge.py" output="screen" />
           
-          
-    <!-- ======================================================================================= -->
-    <!-- TRANSLATOR & CORE DNF NODES                                                             -->
-    <!-- ======================================================================================= -->
-
-    <!--
-      THE TRANSLATOR BRIDGE NODE
-      This node is launched UNLESS the vision_source is 'simple', because the 'simple'
-      publisher already speaks the correct language (JSON on /object_detections).
-      For 'ar' and 'real', this node is ESSENTIAL.
-    -->
-    <node name="robot_vision_bridge_node" pkg="fake_tiago_pkg" type="robot_vision_bridge.py" output="screen"
-          unless="$(eval arg('vision_source') == 'simple')" />
-
-    <!-- The node that listens to /object_detections and creates DNF inputs. This always runs. -->
+    <!-- DNF Input Formatter (translates JSON to DNF-compatible matrices) -->
     <node name="vision_to_dnf_node" pkg="fake_tiago_pkg" type="vision_to_dnf_node.py" output="screen" />
 
-    <!-- The core DNF learning node. This always runs. -->
+    <!-- The core DNF learning node -->
     <node name="dnf_model_learning_simple_node" pkg="fake_tiago_pkg" type="dnf_model_learning_simple_node.py" output="screen" />
 
 </launch>
