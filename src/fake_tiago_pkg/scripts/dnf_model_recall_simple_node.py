@@ -49,12 +49,12 @@ class DNFRecallNode:
 
         # --- Subscribers and timers ---
         self.subscription = rospy.Subscriber(
-            'input_matrices_combined',
+            '/dnf_inputs',
             Float32MultiArray,
             self.process_inputs,
             queue_size=10
         )
-        self.timer = rospy.Timer(rospy.Duration(1.0), self.timer_callback)
+        # self.timer = rospy.Timer(rospy.Duration(1.0), self.timer_callback)
 
     # ------------------ Setup helpers ------------------
     def _init_plots(self):
@@ -66,7 +66,7 @@ class DNFRecallNode:
         object_labels = ['base', 'blue box', 'load', 'tool 1', 'bearing', 'motor', 'tool 2']
 
         # Define the desired limits once
-        desired_xlim = (self.x.min(), self.x.max()) # This is robust, e.g., (-80, 80)
+        desired_xlim = (self.x.min(), self.x.max()) # e.g., (-80, 80)
 
         # Pass the new xlim argument to each call
         self.ax1 = format_axis(self.ax1, "Action Onset Field", "u_act(x)", object_positions, object_labels, xlim=desired_xlim)
@@ -93,7 +93,7 @@ class DNFRecallNode:
         try:
             self.u_d = load_task_duration(data_dir)
             self.h_d_initial = max(self.u_d)
-            rospy.loginfo(f"Loaded task duration, size: {len(self.u_d)}")
+            rospy.loginfo(f"Loaded task duration, size: {len(self.u_d)}, max value: {self.h_d_initial:.3f}")
 
             # Load sequence memory
             u_sm = load_sequence_memory(data_dir)
@@ -135,9 +135,12 @@ class DNFRecallNode:
         self.w_hat_f = self.w_hat_act.copy()
 
         # Adaptation fields
-        self.h_u_act = np.zeros_like(self.x)
-        self.h_u_sim = np.zeros_like(self.x)
-        self.h_u_wm = np.zeros_like(self.x)
+        # self.h_u_act = np.zeros_like(self.x)
+        # self.h_u_sim = np.zeros_like(self.x)
+        self.h_u_act = -self.h_d_initial * np.ones_like(self.x) + 1.5
+        self.h_u_sim = -self.h_d_initial * np.ones_like(self.x) + 1.5
+        # self.h_u_wm = np.zeros_like(self.x)
+        self.h_u_wm = -1.0 * np.ones_like(self.x)
         self.h_u_amem = np.zeros_like(self.x)
         self.h_f = -1.0
 
@@ -150,17 +153,17 @@ class DNFRecallNode:
         self.threshold_crossed = {pos: False for pos in [-60, -20, 20, 40]}
 
     # ------------------ ROS Callbacks ------------------
-    def timer_callback(self, event):
-        try:
-            self.perform_recall()
-        except Exception as e:
-            rospy.logerr(f"Error in timer_callback: {e}")
+    # def timer_callback(self, event):
+    #     try:
+    #         self.perform_recall()
+    #     except Exception as e:
+    #         rospy.logerr(f"Error in timer_callback: {e}")
 
     def process_inputs(self, msg):
         """Process input matrices from subscriber."""
         try:
             elapsed_time = (rospy.Time.now() - self.start_time).to_sec()
-            rospy.loginfo(f"[{elapsed_time:.2f}s] Received external DNF input on topic '{self.subscription.name}'.")
+            # rospy.loginfo(f"[{elapsed_time:.2f}s] Received external DNF input on topic '{self.subscription.name}'.")
             data = np.array(msg.data)
             n = len(data) // 3
 
@@ -198,12 +201,14 @@ class DNFRecallNode:
             conv_f2 = conv(self.u_f2, self.w_hat_f)
             conv_error = conv(self.u_error, self.w_hat_f)
 
+            f_wm = np.heaviside(self.u_wm - self.theta_wm, 1)
+
             # --- Update field dynamics ---
             self.h_u_act += self.dt / self.tau_h_act
             self.h_u_sim += self.dt / self.tau_h_sim
 
-            self.u_act += self.dt * (-self.u_act + conv_act + self.input_action_onset + self.h_u_act - 6.0 * conv_wm)
-            self.u_sim += self.dt * (-self.u_sim + conv_sim + self.input_action_onset_2 + self.h_u_sim - 6.0 * conv_wm)
+            self.u_act += self.dt * (-self.u_act + conv_act + self.input_action_onset + self.h_u_act - 6.0 * f_wm * conv_wm)
+            self.u_sim += self.dt * (-self.u_sim + conv_sim + self.input_action_onset_2 + self.h_u_sim - 6.0 * f_wm *conv_wm)
             self.u_wm += self.dt * (-self.u_wm + conv_wm + 6*((conv_f1*self.u_f1)*(conv_f2*self.u_f2)) + self.h_u_wm)
             self.u_f1 += self.dt * (-self.u_f1 + conv_f1 + self.input_agent_robot_feedback + self.h_f - 1*conv_wm)
             self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_agent2 + self.h_f - 1*conv_wm)
