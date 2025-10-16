@@ -54,7 +54,10 @@ class DNFLearningNode:
         self.fig.tight_layout()
         plt.show(block=False)
         plt.pause(0.1)
-        
+
+        self.shutdown_requested = False
+        self.is_finished = False
+
         rospy.loginfo("Plot window initialized")
 
         # ROS subscriber
@@ -100,9 +103,11 @@ class DNFLearningNode:
 
         # Check if finished
         if self.time_counter >= self.t_lim:
-            rospy.loginfo("Learning finished.")
-            self.save_data()
-            rospy.signal_shutdown("Finished learning")
+            if not self.is_finished:
+                rospy.loginfo("Learning finished. Signaling main loop to save and exit.")
+                self.is_finished = True
+            # self.save_data()
+            # rospy.signal_shutdown("Finished learning")
 
     def update_plot(self):
         """Update plot - must be called from main thread"""
@@ -138,7 +143,16 @@ class DNFLearningNode:
         rate = rospy.Rate(20)  # 20 Hz update rate
         
         while not rospy.is_shutdown():
+            if self.is_finished:
+                rospy.loginfo("Main loop detected 'finished' flag. Saving data and shutting down.")
+                self.save_data() # This is now called from the main thread!
+                break # Exit the while loop to allow the node to terminate
+
             try:
+                # if self.shutdown_requested:
+                #     # If shutdown has started, don't try to plot anymore
+                #     rate.sleep()
+                #     continue
                 # Update plot in main thread
                 self.update_plot()
                 
@@ -179,6 +193,7 @@ class DNFLearningNode:
         self.ax2.set_title("Task Duration Field", fontsize=12, fontweight='bold')
 
     def save_data(self):
+        self.shutdown_requested = True
         try:
             rospack = rospkg.RosPack()
             pkg_path = rospack.get_path('fake_tiago_pkg')
@@ -202,7 +217,7 @@ class DNFLearningNode:
 if __name__ == "__main__":
     try:
         node = DNFLearningNode()
-        rospy.on_shutdown(node.save_data)
+        # rospy.on_shutdown(node.save_data)
         rospy.loginfo("DNF Learning Node started. Waiting for inputs...")
         
         # Use custom spin instead of rospy.spin()

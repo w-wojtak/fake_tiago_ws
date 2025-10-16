@@ -62,10 +62,41 @@ class VisionToDNF:
         self.start_time = None
 
         # Timer to publish every 1 second
-        self.timer = rospy.Timer(rospy.Duration(1.0), self.publish_slices)
+        # self.timer = rospy.Timer(rospy.Duration(1.0), self.publish_slices)
+        self.main_publishing_timer = None # Will be started later
 
-        rospy.loginfo("Vision→DNF node started, listening to /object_detections.")
+        # rospy.loginfo("Vision→DNF node started, listening to /object_detections.")
+        rospy.loginfo("Vision→DNF node initialized. Will start publishing once a subscriber connects.")
+        
+        # # This loop will pause the script until the DNF learning/recall node is ready.
+        # while not rospy.is_shutdown() and self.pub_inputs.get_num_connections() == 0:
+        #     rospy.Rate(10).sleep() # Check 10 times per second
+
+        # rospy.loginfo("Subscriber connected! Starting to publish DNF inputs at 1 Hz.")
+        rospy.Timer(rospy.Duration(0.5), self.wait_for_subscriber_and_start, oneshot=True)
+
         rospy.loginfo(f"Pickup detection threshold set to: {self.pickup_detection_threshold}m (10cm)")
+
+
+    def wait_for_subscriber_and_start(self, event):
+        """
+        This function is called once after a short delay. It waits until a
+        subscriber is connected to '/dnf_inputs' and then starts the main
+        publishing timer.
+        """
+        rospy.loginfo("Checking for subscribers...")
+        rate = rospy.Rate(2) # Check twice per second
+
+        while not rospy.is_shutdown() and self.pub_inputs.get_num_connections() == 0:
+            rospy.loginfo("Waiting for a subscriber to connect to /dnf_inputs...")
+            rate.sleep()
+
+        if rospy.is_shutdown():
+            return
+
+        rospy.loginfo("Subscriber connected! Starting the 1 Hz publishing timer.")
+        # Now that we have a subscriber, it's safe to start the main publishing loop.
+        self.main_publishing_timer = rospy.Timer(rospy.Duration(1.0), self.publish_slices)
 
     def gaussian(self, center=0, amplitude=1.0, width=1.0):
         """Generate Gaussian profile centered at 'center'"""
@@ -204,7 +235,7 @@ class VisionToDNF:
             self.current_time_index += 1
         else:
             rospy.loginfo(f"Completed publishing all time slices. Total objects picked up: {len(self.picked_up_objects)}")
-            self.timer.shutdown()
+            self.main_publishing_timer.shutdown()
 
 def main():
     try:

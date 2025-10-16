@@ -9,10 +9,10 @@ class HumanActionSimulator:
         # This schedule simulates WHEN a human picks up each object from the table.
         # The timings are NOT uniform to be more realistic.
         self.pickup_schedule = [
-            ('base', 6.0),      # First pickup at t=6s
-            ('load', 15.5),     # Next pickup  
-            ('bearing', 23.0),  # Next pickup  
-            ('motor', 30.2)     # Final pickup  
+            ('base', 16.0),      # First pickup at t=6s
+            ('load', 25.5),     # Next pickup  
+            ('bearing', 33.0),  # Next pickup  
+            ('motor', 40.2)     # Final pickup  
         ]
 
         # --- ADD THIS ---
