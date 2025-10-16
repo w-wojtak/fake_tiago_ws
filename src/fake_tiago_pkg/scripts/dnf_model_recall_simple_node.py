@@ -97,8 +97,8 @@ class DNFRecallNode:
 
             # Load sequence memory
             u_sm = load_sequence_memory(data_dir)
-            self.u_act = u_sm - self.h_d_initial + 1.5
-            self.u_sim = u_sm - self.h_d_initial + 1.5
+            self.u_act = u_sm - self.h_d_initial + 1.525
+            self.u_sim = u_sm - self.h_d_initial + 1.525
             self.input_action_onset = u_sm.copy()
             self.input_action_onset_2 = u_sm.copy()
 
@@ -137,8 +137,8 @@ class DNFRecallNode:
         # Adaptation fields
         # self.h_u_act = np.zeros_like(self.x)
         # self.h_u_sim = np.zeros_like(self.x)
-        self.h_u_act = -self.h_d_initial * np.ones_like(self.x) + 1.5
-        self.h_u_sim = -self.h_d_initial * np.ones_like(self.x) + 1.5
+        self.h_u_act = -self.h_d_initial * np.ones_like(self.x) + 1.525
+        self.h_u_sim = -self.h_d_initial * np.ones_like(self.x) + 1.525
         # self.h_u_wm = np.zeros_like(self.x)
         self.h_u_wm = -1.0 * np.ones_like(self.x)
         self.h_u_amem = np.zeros_like(self.x)
