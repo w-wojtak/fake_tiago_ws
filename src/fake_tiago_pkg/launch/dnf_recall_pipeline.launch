@@ -15,6 +15,8 @@
     <!-- DNF Input Formatter (translates JSON to DNF-compatible matrices) -->
     <node name="vision_to_dnf_node" pkg="fake_tiago_pkg" type="vision_to_dnf_node.py" output="screen" />
 
+    <node name="fake_voice_commander" pkg="fake_tiago_pkg" type="fake_voice_commander.py" output="screen" />
+
     <!-- ======================================================================================= -->
     <!-- DNF RECALL NODE (The "Brain")                                                          -->
     <!-- ======================================================================================= -->

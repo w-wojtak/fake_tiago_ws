@@ -23,7 +23,7 @@ class DNFRecallNode:
         rospy.loginfo(f"Spatial grid size: {len(self.x)}")
 
         # Threading lock for concurrency
-        self._lock = threading.Lock()
+        self.data_lock = threading.Lock()
 
         # --- Timing ---
         self.start_time = rospy.Time.now()
@@ -145,9 +145,12 @@ class DNFRecallNode:
         self.h_f = -1.0
 
         # Inputs from subscription
-        self.input_agent1 = np.zeros_like(self.x)
-        self.input_agent2 = np.zeros_like(self.x)
-        self.input_agent_robot_feedback = np.zeros_like(self.x)
+        # self.input_agent1 = np.zeros_like(self.x)
+        # self.input_agent2 = np.zeros_like(self.x)
+        # self.input_agent_robot_feedback = np.zeros_like(self.x)
+        self.input_vision = np.zeros_like(self.x)       # From vision_to_dnf
+        self.input_robot_feedback = np.zeros_like(self.x) # For u_f1
+        self.input_human_voice = np.zeros_like(self.x)    # For u_f2
 
         # Threshold tracker
         self.threshold_crossed = {pos: False for pos in [-60, -20, 20, 40]}
@@ -160,46 +163,54 @@ class DNFRecallNode:
     #         rospy.logerr(f"Error in timer_callback: {e}")
 
     def process_inputs(self, msg):
-        """Process input matrices from subscriber."""
+        """
+        Process the combined input matrices from the '/dnf_inputs' topic.
+        Unpacks the data according to the established contract.
+        """
         try:
-            elapsed_time = (rospy.Time.now() - self.start_time).to_sec()
-            # rospy.loginfo(f"[{elapsed_time:.2f}s] Received external DNF input on topic '{self.subscription.name}'.")
             data = np.array(msg.data)
-            n = len(data) // 3
+            n = len(self.x)
 
-            with self._lock:
-                if n != len(self.x):
-                    x_input = np.linspace(-self.x_lim, self.x_lim, n)
-                    self.input_agent1 = np.interp(self.x, x_input, data[:n])
-                    self.input_agent2 = np.interp(self.x, x_input, data[n:2*n])
-                    self.input_agent_robot_feedback = np.interp(self.x, x_input, data[2*n:])
-                else:
-                    self.input_agent1 = data[:n]
-                    self.input_agent2 = data[n:2*n]
-                    self.input_agent_robot_feedback = data[2*n:]
+            if len(data) != 3 * n:
+                rospy.logwarn(f"Received data of unexpected length. Skipping.")
+                return
 
+            with self.data_lock:
+                # --- UNPACK DATA ---
+                # Matrix 1: Vision Input
+                self.input_vision = data[0 : n]
+                
+                # Matrix 2: Robot Feedback Input (for u_f1)
+                self.input_robot_feedback = data[n : 2*n]
+                
+                # Matrix 3: Human Voice Input (for u_f2)
+                self.input_human_voice = data[2*n : 3*n]
+                # --- END OF UNPACKING ---
+
+            # Now that inputs are updated, run one step of the simulation.
             self.perform_recall()
+
         except Exception as e:
             rospy.logerr(f"Error in process_inputs: {e}")
 
     # ------------------ Core Recall ------------------
     def perform_recall(self):
-        with self._lock:
+        with self.data_lock:
             # Increment simulation time step and calculate current times
             self.current_sim_step += 1
             elapsed_time = (rospy.Time.now() - self.start_time).to_sec()
             current_sim_time = self.current_sim_step * self.dt
             # --- Compute convolutions using FFTs ---
-            def conv(field, w_hat):
-                f = np.heaviside(field - self.theta_act, 1)
+            def conv(field, w_hat, theta):
+                f = np.heaviside(field - theta, 1)
                 return self.dx * np.fft.ifftshift(np.real(np.fft.ifft(np.fft.fft(f) * w_hat)))
 
-            conv_act = conv(self.u_act, self.w_hat_act)
-            conv_sim = conv(self.u_sim, self.w_hat_sim)
-            conv_wm = conv(self.u_wm, self.w_hat_wm)
-            conv_f1 = conv(self.u_f1, self.w_hat_f)
-            conv_f2 = conv(self.u_f2, self.w_hat_f)
-            conv_error = conv(self.u_error, self.w_hat_f)
+            conv_act = conv(self.u_act, self.w_hat_act, self.theta_act)
+            conv_sim = conv(self.u_sim, self.w_hat_sim, self.theta_sim)
+            conv_wm = conv(self.u_wm, self.w_hat_wm, self.theta_wm)
+            conv_f1 = conv(self.u_f1, self.w_hat_f, self.theta_f)
+            conv_f2 = conv(self.u_f2, self.w_hat_f, self.theta_f)
+            conv_error = conv(self.u_error, self.w_hat_act, self.theta_error)
 
             f_wm = np.heaviside(self.u_wm - self.theta_wm, 1)
 
@@ -210,8 +221,8 @@ class DNFRecallNode:
             self.u_act += self.dt * (-self.u_act + conv_act + self.input_action_onset + self.h_u_act - 6.0 * f_wm * conv_wm)
             self.u_sim += self.dt * (-self.u_sim + conv_sim + self.input_action_onset_2 + self.h_u_sim - 6.0 * f_wm *conv_wm)
             self.u_wm += self.dt * (-self.u_wm + conv_wm + 6*((conv_f1*self.u_f1)*(conv_f2*self.u_f2)) + self.h_u_wm)
-            self.u_f1 += self.dt * (-self.u_f1 + conv_f1 + self.input_agent_robot_feedback + self.h_f - 1*conv_wm)
-            self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_agent2 + self.h_f - 1*conv_wm)
+            self.u_f1 += self.dt * (-self.u_f1 + conv_f1 + self.input_robot_feedback + self.h_f - 1*conv_wm)
+            self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_human_voice + self.h_f - 1*conv_wm)
             self.u_error += self.dt * (-self.u_error + conv_error + self.h_f - 2*conv_sim)
 
             self.h_u_amem += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
@@ -241,7 +252,7 @@ class DNFRecallNode:
     # ------------------ Plotting ------------------
     def update_plot(self):
         try:
-            with self._lock:
+            with self.data_lock:
                 self.line_act.set_ydata(self.u_act)
                 self.line_sim.set_ydata(self.u_sim)
                 self.line_wm.set_ydata(self.u_wm)
