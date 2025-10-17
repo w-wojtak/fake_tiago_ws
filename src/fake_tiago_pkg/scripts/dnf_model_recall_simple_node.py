@@ -8,6 +8,7 @@ import threading
 from utils import *
 import os
 from scipy.ndimage import gaussian_filter1d 
+from datetime import datetime
 
 class DNFRecallNode:
     def __init__(self):
@@ -311,24 +312,45 @@ class DNFRecallNode:
         self._save_adaptive_memory()
 
     def _save_adaptive_memory(self):
-        """Save h_u_amem for use in the next trial (with Gaussian smoothing)."""
+        """Save h_u_amem for use in the next trial (smoothed and accumulated)."""
         try:
             # Create trial-specific directory if it doesn't exist
             if not os.path.exists(self.trial_data_path):
                 os.makedirs(self.trial_data_path)
                 rospy.loginfo(f"Created directory: {self.trial_data_path}")
             
-            # Apply Gaussian smoothing before saving
-            h_u_amem_smoothed = gaussian_filter1d(self.h_u_amem, sigma=15)
+            # Apply Gaussian smoothing
+            h_u_amem_smoothed = gaussian_filter1d(self.h_u_amem, sigma=10)
             
-            # Save smoothed h_u_amem
+            # Accumulate with previous trial if not trial 1
+            if self.trial_number > 1:
+                prev_trial = self.trial_number - 1
+                prev_trial_path = os.path.join(self.base_data_path, f'trial_{prev_trial}')
+                prev_filepath = os.path.join(prev_trial_path, 'h_u_amem.npy')
+                
+                if os.path.exists(prev_filepath):
+                    latest_h_amem = np.load(prev_filepath)
+                    h_u_amem_smoothed = h_u_amem_smoothed + latest_h_amem
+                    rospy.loginfo(f"  Accumulated with trial {prev_trial} h_u_amem")
+                else:
+                    rospy.logwarn(f"  Could not find previous h_u_amem at {prev_filepath}")
+            
+            # Get current timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Save to trial-specific directory
             filepath = os.path.join(self.trial_data_path, 'h_u_amem.npy')
             np.save(filepath, h_u_amem_smoothed)
             
+            # Also save with timestamp for archival
+            filepath_timestamped = os.path.join(self.trial_data_path, f'h_u_amem_{timestamp}.npy')
+            np.save(filepath_timestamped, h_u_amem_smoothed)
+            
             rospy.loginfo(f"✓ Saved h_u_amem for trial {self.trial_number} (smoothed with sigma=15)")
             rospy.loginfo(f"  Path: {filepath}")
+            rospy.loginfo(f"  Timestamped: {filepath_timestamped}")
             rospy.loginfo(f"  Original - Max: {np.max(self.h_u_amem):.4f}, Min: {np.min(self.h_u_amem):.4f}")
-            rospy.loginfo(f"  Smoothed - Max: {np.max(h_u_amem_smoothed):.4f}, Min: {np.min(h_u_amem_smoothed):.4f}")
+            rospy.loginfo(f"  Saved (smoothed+accumulated) - Max: {np.max(h_u_amem_smoothed):.4f}, Min: {np.min(h_u_amem_smoothed):.4f}")
             
         except Exception as e:
             rospy.logerr(f"✗ Failed to save h_u_amem: {e}")
