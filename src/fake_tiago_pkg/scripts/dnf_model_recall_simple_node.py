@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import threading
 from utils import *
 import os
+from scipy.ndimage import gaussian_filter1d 
 
 class DNFRecallNode:
     def __init__(self):
@@ -103,10 +104,13 @@ class DNFRecallNode:
             self.h_d_initial = max(self.u_d)
             rospy.loginfo(f"✓ Loaded task duration from {data_dir}, size: {len(self.u_d)}, max value: {self.h_d_initial:.3f}")
 
+            # Load adaptive memory from previous trial (or initialize to zeros)
+            self.h_u_amem = self._load_adaptive_memory()
+
             # Load sequence memory
             u_sm = load_sequence_memory(data_dir)
-            self.u_act = u_sm - self.h_d_initial + 1.525
-            self.u_sim = u_sm - self.h_d_initial + 1.525
+            self.u_act = u_sm - self.h_d_initial + 1.525 - self.h_u_amem
+            self.u_sim = u_sm - self.h_d_initial + 1.525 - self.h_u_amem
             self.input_action_onset = u_sm.copy()
             self.input_action_onset_2 = u_sm.copy()
             rospy.loginfo(f"✓ Loaded sequence memory from {data_dir}")
@@ -168,13 +172,15 @@ class DNFRecallNode:
         self.w_hat_wm = np.fft.fft(kernel_osc(self.x, 1.75, 0.5, 0.8))
         self.w_hat_f = self.w_hat_act.copy()
 
-        # Adaptation fields
-        self.h_u_act = -self.h_d_initial * np.ones_like(self.x) + 1.525
-        self.h_u_sim = -self.h_d_initial * np.ones_like(self.x) + 1.525
-        self.h_u_wm = -1.0 * np.ones_like(self.x)
-        
         # Load adaptive memory from previous trial (or initialize to zeros)
         self.h_u_amem = self._load_adaptive_memory()
+
+        # Adaptation fields
+        self.h_u_act = -self.h_d_initial * np.ones_like(self.x) + 1.525 - self.h_u_amem
+        self.h_u_sim = -self.h_d_initial * np.ones_like(self.x) + 1.525 - self.h_u_amem
+        self.h_u_wm = -1.0 * np.ones_like(self.x)
+        
+
         
         self.h_f = -1.0
 
@@ -305,23 +311,27 @@ class DNFRecallNode:
         self._save_adaptive_memory()
 
     def _save_adaptive_memory(self):
-        """Save h_u_amem for use in the next trial."""
+        """Save h_u_amem for use in the next trial (with Gaussian smoothing)."""
         try:
             # Create trial-specific directory if it doesn't exist
             if not os.path.exists(self.trial_data_path):
                 os.makedirs(self.trial_data_path)
                 rospy.loginfo(f"Created directory: {self.trial_data_path}")
             
-            # Save h_u_amem
-            filepath = os.path.join(self.trial_data_path, 'h_u_amem.npy')
-            np.save(filepath, self.h_u_amem)
+            # Apply Gaussian smoothing before saving
+            h_u_amem_smoothed = gaussian_filter1d(self.h_u_amem, sigma=15)
             
-            rospy.loginfo(f" Saved h_u_amem for trial {self.trial_number}")
+            # Save smoothed h_u_amem
+            filepath = os.path.join(self.trial_data_path, 'h_u_amem.npy')
+            np.save(filepath, h_u_amem_smoothed)
+            
+            rospy.loginfo(f"✓ Saved h_u_amem for trial {self.trial_number} (smoothed with sigma=15)")
             rospy.loginfo(f"  Path: {filepath}")
-            rospy.loginfo(f"  Shape: {self.h_u_amem.shape}, Max: {np.max(self.h_u_amem):.4f}, Min: {np.min(self.h_u_amem):.4f}")
+            rospy.loginfo(f"  Original - Max: {np.max(self.h_u_amem):.4f}, Min: {np.min(self.h_u_amem):.4f}")
+            rospy.loginfo(f"  Smoothed - Max: {np.max(h_u_amem_smoothed):.4f}, Min: {np.min(h_u_amem_smoothed):.4f}")
             
         except Exception as e:
-            rospy.logerr(f" Failed to save h_u_amem: {e}")
+            rospy.logerr(f"✗ Failed to save h_u_amem: {e}")
 
 
 
