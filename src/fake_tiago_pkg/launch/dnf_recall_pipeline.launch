@@ -1,6 +1,9 @@
 <launch>
-    <!-- Path to the saved DNF memory files -->
-    <arg name="data_path" default="$(find fake_tiago_pkg)/data_basic" />
+    <!-- Trial number selector (default is trial 1) -->
+    <arg name="trial_number" default="1" />
+    
+    <!-- Path to the saved DNF memory files (now includes trial number) -->
+    <arg name="data_path" default="$(find fake_tiago_pkg)/data_basic/trial_$(arg trial_number)" />
 
     <!-- ======================================================================================= -->
     <!-- WORLD & VISION SIMULATION                                                               -->
@@ -21,6 +24,8 @@
     <!-- DNF RECALL NODE (The "Brain")                                                          -->
     <!-- ======================================================================================= -->
     <node name="dnf_recall_node" pkg="fake_tiago_pkg" type="dnf_model_recall_simple_node.py" output="screen">
+        <param name="trial_number" value="$(arg trial_number)" />
+        <param name="data_path" value="$(arg data_path)" />
         <param name="sequence_memory_path" value="$(arg data_path)/u_sm.npy" />
         <param name="duration_field_path"  value="$(arg data_path)/u_d.npy" />
     </node>

@@ -14,7 +14,7 @@ class DNFRecallNode:
 
         # --- Parameters ---
         self.trial_number = rospy.get_param('~trial_number', 1)
-        rospy.loginfo(f"Recall node started with trial_number: {self.trial_number}")
+        rospy.loginfo(f"****** Recall node ****** started with trial_number: {self.trial_number}")
 
         # Spatial and temporal grid
         self.x_lim, self.t_lim = 80, 15
@@ -37,8 +37,14 @@ class DNFRecallNode:
         self._init_plots()
 
         # --- Load previous data ---
-        data_dir = "/workspaces/fake_tiago_ws/src/fake_tiago_pkg/data_basic"
-        self._load_data(data_dir)
+        # Get paths from ROS parameters
+        self.base_data_path = rospy.get_param('~base_data_path', '/workspaces/fake_tiago_ws/src/fake_tiago_pkg/data_basic')
+        self.trial_data_path = rospy.get_param('~trial_data_path', f'{self.base_data_path}/trial_{self.trial_number}')
+        
+        rospy.loginfo(f"Base data path (u_sm, u_d): {self.base_data_path}")
+        rospy.loginfo(f"Trial data path (h_u_amem): {self.trial_data_path}")
+        
+        self._load_data(self.base_data_path)
 
         # --- Field initialization ---
         self._init_fields()
@@ -54,7 +60,9 @@ class DNFRecallNode:
             self.process_inputs,
             queue_size=10
         )
-        # self.timer = rospy.Timer(rospy.Duration(1.0), self.timer_callback)
+        
+        # Register shutdown hook
+        rospy.on_shutdown(self.save_all_data)
 
     # ------------------ Setup helpers ------------------
     def _init_plots(self):
@@ -88,12 +96,12 @@ class DNFRecallNode:
         plt.show(block=False)
 
     def _load_data(self, data_dir):
-        """Load sequence memory and task duration from disk."""
+        """Load sequence memory and task duration from disk (same for all trials)."""
         self.h_d_initial = 0
         try:
             self.u_d = load_task_duration(data_dir)
             self.h_d_initial = max(self.u_d)
-            rospy.loginfo(f"Loaded task duration, size: {len(self.u_d)}, max value: {self.h_d_initial:.3f}")
+            rospy.loginfo(f"✓ Loaded task duration from {data_dir}, size: {len(self.u_d)}, max value: {self.h_d_initial:.3f}")
 
             # Load sequence memory
             u_sm = load_sequence_memory(data_dir)
@@ -101,13 +109,39 @@ class DNFRecallNode:
             self.u_sim = u_sm - self.h_d_initial + 1.525
             self.input_action_onset = u_sm.copy()
             self.input_action_onset_2 = u_sm.copy()
+            rospy.loginfo(f"✓ Loaded sequence memory from {data_dir}")
 
         except IOError as e:
-            rospy.logwarn(f"No previous sequence memory found: {e}")
+            rospy.logwarn(f"✗ No previous sequence memory found in {data_dir}: {e}")
             self.u_act = np.zeros_like(self.x)
             self.u_sim = np.zeros_like(self.x)
             self.input_action_onset = np.zeros_like(self.x)
             self.input_action_onset_2 = np.zeros_like(self.x)
+
+
+    def _load_adaptive_memory(self):
+        """Load h_u_amem from previous trial, or initialize to zeros."""
+        if self.trial_number == 1:
+            # First trial - start fresh
+            rospy.loginfo("Trial 1: Initializing h_u_amem to zeros")
+            return np.zeros_like(self.x)
+        else:
+            # Load from previous trial
+            prev_trial = self.trial_number - 1
+            
+            # Construct path to previous trial's h_u_amem
+            prev_trial_path = os.path.join(self.base_data_path, f'trial_{prev_trial}')
+            filepath = os.path.join(prev_trial_path, 'h_u_amem.npy')
+            
+            if os.path.exists(filepath):
+                loaded_amem = np.load(filepath)
+                rospy.loginfo(f" Loaded h_u_amem from trial {prev_trial}")
+                rospy.loginfo(f"  Path: {filepath}")
+                rospy.loginfo(f"  Shape: {loaded_amem.shape}, Max: {np.max(loaded_amem):.4f}, Min: {np.min(loaded_amem):.4f}")
+                return loaded_amem
+            else:
+                rospy.logwarn(f"✗ No h_u_amem found at {filepath}. Starting fresh.")
+                return np.zeros_like(self.x)
 
     def _init_fields(self):
         """Initialize all fields and parameters."""
@@ -135,19 +169,16 @@ class DNFRecallNode:
         self.w_hat_f = self.w_hat_act.copy()
 
         # Adaptation fields
-        # self.h_u_act = np.zeros_like(self.x)
-        # self.h_u_sim = np.zeros_like(self.x)
         self.h_u_act = -self.h_d_initial * np.ones_like(self.x) + 1.525
         self.h_u_sim = -self.h_d_initial * np.ones_like(self.x) + 1.525
-        # self.h_u_wm = np.zeros_like(self.x)
         self.h_u_wm = -1.0 * np.ones_like(self.x)
-        self.h_u_amem = np.zeros_like(self.x)
+        
+        # Load adaptive memory from previous trial (or initialize to zeros)
+        self.h_u_amem = self._load_adaptive_memory()
+        
         self.h_f = -1.0
 
         # Inputs from subscription
-        # self.input_agent1 = np.zeros_like(self.x)
-        # self.input_agent2 = np.zeros_like(self.x)
-        # self.input_agent_robot_feedback = np.zeros_like(self.x)
         self.input_vision = np.zeros_like(self.x)       # From vision_to_dnf
         self.input_robot_feedback = np.zeros_like(self.x) # For u_f1
         self.input_human_voice = np.zeros_like(self.x)    # For u_f2
@@ -156,12 +187,6 @@ class DNFRecallNode:
         self.threshold_crossed = {pos: False for pos in [-60, -20, 20, 40]}
 
     # ------------------ ROS Callbacks ------------------
-    # def timer_callback(self, event):
-    #     try:
-    #         self.perform_recall()
-    #     except Exception as e:
-    #         rospy.logerr(f"Error in timer_callback: {e}")
-
     def process_inputs(self, msg):
         """
         Process the combined input matrices from the '/dnf_inputs' topic.
@@ -226,6 +251,7 @@ class DNFRecallNode:
             self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_human_voice + self.h_f - 2*conv_wm)
             self.u_error += self.dt * (-self.u_error + conv_error + self.h_f - 2*conv_sim)
 
+            # Update adaptive memory (this will be saved for next trial)
             self.h_u_amem += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
 
             # --- Threshold detection and history ---
@@ -270,8 +296,34 @@ class DNFRecallNode:
     def save_all_data(self):
         elapsed_time = (rospy.Time.now() - self.start_time).to_sec()
         rospy.loginfo(f"[{elapsed_time:.2f}s] Shutting down. Saving field data.")
+        
+        # Save working memory (existing functionality)
         save_field(self.u_wm, "working_memory")
         save_node_history(self)
+        
+        # Save adaptive memory for next trial
+        self._save_adaptive_memory()
+
+    def _save_adaptive_memory(self):
+        """Save h_u_amem for use in the next trial."""
+        try:
+            # Create trial-specific directory if it doesn't exist
+            if not os.path.exists(self.trial_data_path):
+                os.makedirs(self.trial_data_path)
+                rospy.loginfo(f"Created directory: {self.trial_data_path}")
+            
+            # Save h_u_amem
+            filepath = os.path.join(self.trial_data_path, 'h_u_amem.npy')
+            np.save(filepath, self.h_u_amem)
+            
+            rospy.loginfo(f" Saved h_u_amem for trial {self.trial_number}")
+            rospy.loginfo(f"  Path: {filepath}")
+            rospy.loginfo(f"  Shape: {self.h_u_amem.shape}, Max: {np.max(self.h_u_amem):.4f}, Min: {np.min(self.h_u_amem):.4f}")
+            
+        except Exception as e:
+            rospy.logerr(f" Failed to save h_u_amem: {e}")
+
+
 
 # ------------------ Main ------------------
 def main():
