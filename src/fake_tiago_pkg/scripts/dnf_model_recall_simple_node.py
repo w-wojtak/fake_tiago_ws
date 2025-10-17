@@ -205,6 +205,7 @@ class DNFRecallNode:
                 f = np.heaviside(field - theta, 1)
                 return self.dx * np.fft.ifftshift(np.real(np.fft.ifft(np.fft.fft(f) * w_hat)))
 
+
             conv_act = conv(self.u_act, self.w_hat_act, self.theta_act)
             conv_sim = conv(self.u_sim, self.w_hat_sim, self.theta_sim)
             conv_wm = conv(self.u_wm, self.w_hat_wm, self.theta_wm)
@@ -219,7 +220,7 @@ class DNFRecallNode:
             self.h_u_sim += self.dt / self.tau_h_sim
 
             self.u_act += self.dt * (-self.u_act + conv_act + self.input_action_onset + self.h_u_act - 6.0 * f_wm * conv_wm)
-            self.u_sim += self.dt * (-self.u_sim + conv_sim + self.input_action_onset_2 + self.h_u_sim - 6.0 * f_wm *conv_wm)
+            self.u_sim += (self.dt*2.0) * (-self.u_sim + conv_sim + self.input_action_onset_2 + self.h_u_sim - 6.0 * f_wm *conv_wm)
             self.u_wm += self.dt * (-self.u_wm + conv_wm + 6*((conv_f1*self.u_f1)*(conv_f2*self.u_f2)) + self.h_u_wm)
             self.u_f1 += self.dt * (-self.u_f1 + conv_f1 + self.input_robot_feedback + self.h_f - 1*conv_wm)
             self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_human_voice + self.h_f - 1*conv_wm)
@@ -230,6 +231,7 @@ class DNFRecallNode:
             # --- Threshold detection and history ---
             input_positions = [-60, -20, 20, 40]
             input_indices = [np.argmin(np.abs(self.x - pos)) for pos in input_positions]
+
 
             self.u_act_history.append([self.u_act[idx] for idx in input_indices])
             self.u_sim_history.append([self.u_sim[idx] for idx in input_indices])

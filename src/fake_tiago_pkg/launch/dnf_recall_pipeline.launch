@@ -30,7 +30,7 @@
     <!-- ======================================================================================= -->
 
     <!-- Fake Human Taker (Simulates the human taking objects at scheduled times) -->
-    <node name="fake_human_taker" pkg="fake_tiago_pkg" type="fake_human_taker.py" output="screen" />
+    <!-- <node name="fake_human_taker" pkg="fake_tiago_pkg" type="fake_human_taker.py" output="screen" /> -->
 
     <!-- Task Executive (The state machine connecting brain to action) -->
     <node name="task_executive_node" pkg="fake_tiago_pkg" type="task_executive_node.py" output="screen" />

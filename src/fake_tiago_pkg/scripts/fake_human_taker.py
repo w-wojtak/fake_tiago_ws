@@ -4,32 +4,22 @@ from std_msgs.msg import String
 
 class FakeHumanTaker:
     def __init__(self):
-        rospy.init_node('fake_human_taker', anonymous=True)
+        rospy.init_node('fake_human_node', anonymous=True)
+        rospy.Subscriber('/robot_state/handover_ready', String, self.robot_ready_callback)
+        self.voice_pub = rospy.Publisher('/voice_command', String, queue_size=10)
+        # We don't need the 'take' publisher if we simplify the logic
+        rospy.loginfo("REACTIVE Fake Human Node started.")
 
-        # This schedule simulates WHEN the human is ready to take each object (in seconds from start)
-        self.take_schedule = [
-            ('base', 7.0),      # Human is ready for 'base' at t=7s
-            ('load', 17.0),     # Human is ready for 'load' at t=17s
-            ('bearing', 27.0),  # ...and so on
-            ('motor', 37.0)
-        ]
-
-        self.pub = rospy.Publisher('/simulation/human_take_object', String, queue_size=10)
-        rospy.loginfo("Fake Human Taker started. Scheduling 'take' events.")
-        self.schedule_take_events()
-
-    def schedule_take_events(self):
-        for object_name, take_time in self.take_schedule:
-            rospy.Timer(
-                rospy.Duration(take_time),
-                lambda event, o=object_name: self.publish_take_event(o),
-                oneshot=True
-            )
-
-    def publish_take_event(self, object_name):
-        rospy.loginfo(f"HUMAN (SIMULATED): Taking '{object_name}' from robot's gripper.")
-        self.pub.publish(String(data=object_name))
+    def robot_ready_callback(self, msg):
+        object_name = msg.data
+        rospy.loginfo(f"HUMAN (SIM): Sees robot is ready with '{object_name}'.")
+        rospy.sleep(2.0) # Human reaction time
+        rospy.loginfo(f"HUMAN (SIM): 'Give me the {object_name}'. Publishing voice command.")
+        self.voice_pub.publish(String(data=object_name))
 
 if __name__ == '__main__':
-    FakeHumanTaker()
-    rospy.spin()
+    try:
+        FakeHumanTaker()
+        rospy.spin()
+    except rospy.ROSInterruptException:
+        pass

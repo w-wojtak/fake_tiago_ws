@@ -29,18 +29,17 @@ class VisionToDNF:
         self.pub_inputs = rospy.Publisher('/dnf_inputs', Float32MultiArray, queue_size=10)
         self.sub_detections = rospy.Subscriber('/object_detections', String, self.detection_callback, queue_size=10)
 
-        self.human_voice_input = np.zeros_like(self.x)
-        self.robot_feedback_input = np.zeros_like(self.x)
-        self.human_voice_duration_counter = 0
-        self.robot_feedback_duration_counter = 0
+        # Accumulated inputs that persist forever once activated
+        self.accumulated_human_voice = np.zeros_like(self.x)
+        self.accumulated_robot_feedback = np.zeros_like(self.x)
+        
         rospy.Subscriber('/simulation/robot_feedback', String, self.robot_feedback_callback)
-
         rospy.Subscriber('/voice_command', String, self.voice_command_callback)
 
         # Gaussian parameters
         self.amplitude = 5.0
         self.width = 2.0
-        self.duration = 1.0  # 1 second duration
+        self.duration = 1.0  # 1 second duration (for pickup detection only)
 
         # Object → Gaussian center mapping (DNF spatial positions)
         self.object_positions = {'base': -60, 'load': -20, 'bearing': 20, 'motor': 40}
@@ -48,7 +47,6 @@ class VisionToDNF:
         # Store last known positions for movement detection
         self.last_positions = {}  # Will be populated as objects are detected
         
-        # --- ADJUSTED ---
         # Single threshold for detecting a pickup (10cm = 0.1m)
         self.pickup_detection_threshold = 0.1  # meters
         
@@ -69,40 +67,34 @@ class VisionToDNF:
         # Track actual elapsed time
         self.start_time = None
 
-        # Timer to publish every 1 second
-        # self.timer = rospy.Timer(rospy.Duration(1.0), self.publish_slices)
-        self.main_publishing_timer = None # Will be started later
+        # Main publishing timer (will be started later)
+        self.main_publishing_timer = None
 
-        # rospy.loginfo("Vision→DNF node started, listening to /object_detections.")
         rospy.loginfo("Vision→DNF node initialized. Will start publishing once a subscriber connects.")
         
-        # # This loop will pause the script until the DNF learning/recall node is ready.
-        # while not rospy.is_shutdown() and self.pub_inputs.get_num_connections() == 0:
-        #     rospy.Rate(10).sleep() # Check 10 times per second
-
-        # rospy.loginfo("Subscriber connected! Starting to publish DNF inputs at 1 Hz.")
         rospy.Timer(rospy.Duration(0.5), self.wait_for_subscriber_and_start, oneshot=True)
 
         rospy.loginfo(f"Pickup detection threshold set to: {self.pickup_detection_threshold}m (10cm)")
 
 
     def voice_command_callback(self, msg):
-        """Receives a voice command and creates a temporary Gaussian input."""
+        """Receives a voice command and adds a permanent Gaussian input."""
         object_name = msg.data
         if object_name in self.object_positions:
             center = self.object_positions[object_name]
-            rospy.loginfo(f"Aggregator: Heard voice command for '{object_name}'. Creating Gaussian for DNF.")
-            self.human_voice_input = self.gaussian(center=center, amplitude=5.0, width=2.0)
-            self.human_voice_duration_counter = int(1.0 / self.dt)
+            rospy.loginfo(f"Aggregator: Heard voice command for '{object_name}'. Creating PERMANENT Gaussian for DNF.")
+            new_gaussian = self.gaussian(center=center, amplitude=5.0, width=2.0)
+            self.accumulated_human_voice += new_gaussian
+
 
     def robot_feedback_callback(self, msg):
-        """Receives robot feedback, creates a Gaussian, and starts its duration counter."""
+        """Receives robot feedback and adds a permanent Gaussian input."""
         object_name = msg.data
         if object_name in self.object_positions:
             center = self.object_positions[object_name]
-            rospy.loginfo(f"Aggregator: Heard robot feedback for '{object_name}'. Creating Gaussian.")
-            self.robot_feedback_input = self.gaussian(center=center, amplitude=5.0, width=2.0)
-            self.robot_feedback_duration_counter = int(1.0 / self.dt)
+            rospy.loginfo(f"Aggregator: Heard robot feedback for '{object_name}'. Creating PERMANENT Gaussian.")
+            new_gaussian = self.gaussian(center=center, amplitude=5.0, width=2.0)
+            self.accumulated_robot_feedback += new_gaussian
 
 
     def wait_for_subscriber_and_start(self, event):
@@ -125,9 +117,11 @@ class VisionToDNF:
         # Now that we have a subscriber, it's safe to start the main publishing loop.
         self.main_publishing_timer = rospy.Timer(rospy.Duration(1.0), self.publish_slices)
 
+
     def gaussian(self, center=0, amplitude=1.0, width=1.0):
         """Generate Gaussian profile centered at 'center'"""
         return amplitude * np.exp(-((self.x - center) ** 2) / (2 * (width ** 2)))
+
 
     def calculate_movement(self, old_pos, new_pos):
         """Calculate the Euclidean distance between two 3D positions"""
@@ -135,6 +129,7 @@ class VisionToDNF:
         dy = new_pos['y'] - old_pos['y']
         dz = new_pos['z'] - old_pos['z']
         return np.sqrt(dx**2 + dy**2 + dz**2)
+
 
     def check_for_pickup(self, object_name, new_position):
         """
@@ -157,6 +152,7 @@ class VisionToDNF:
             return True
         
         return False
+
 
     def add_gaussian_input(self, object_name):
         """Add a gaussian input for the specified object to both matrices"""
@@ -184,6 +180,7 @@ class VisionToDNF:
         rospy.loginfo(f"Added PICKUP gaussian for '{object_name}' at x={center}, "
                      f"sim_t={t_start:.1f}s (elapsed={elapsed:.1f}s)")
 
+
     def update_input_matrices(self):
         """Update both input matrices based on their active gaussians"""
         current_time = self.t[self.current_time_index]
@@ -203,6 +200,7 @@ class VisionToDNF:
                     self.input_matrix2[self.current_time_index] += profile
         
         self.active_gaussians = active_gaussians_now
+
 
     def detection_callback(self, msg):
         """Callback for object detection messages"""
@@ -235,7 +233,7 @@ class VisionToDNF:
     def publish_slices(self, event):
         """
         Publish combined input matrices for the current timestep.
-        This version correctly handles the timed duration of all feedback inputs.
+        Robot feedback and human voice inputs persist indefinitely once activated.
         """
         if self.start_time is None:
             self.start_time = time()
@@ -243,29 +241,11 @@ class VisionToDNF:
         if self.current_time_index < len(self.t):
             self.update_input_matrices() # Updates the vision input
             
-            # --- START OF CORRECTED LOGIC ---
-            
-            # Initialize local variables for this timestep's inputs
-            robot_input_for_this_step = np.zeros_like(self.x)
-            human_input_for_this_step = np.zeros_like(self.x)
+            # Use accumulated inputs (these persist forever once set)
+            robot_input_for_this_step = self.accumulated_robot_feedback
+            human_input_for_this_step = self.accumulated_human_voice
 
-            # Handle robot feedback input
-            if self.robot_feedback_duration_counter > 0:
-                robot_input_for_this_step = self.robot_feedback_input
-                self.robot_feedback_duration_counter -= 1
-                if self.robot_feedback_duration_counter == 0:
-                    rospy.loginfo("Aggregator: Robot feedback input duration finished.")
-            
-            # Handle human voice input
-            if self.human_voice_duration_counter > 0:
-                human_input_for_this_step = self.human_voice_input
-                self.human_voice_duration_counter -= 1
-                if self.human_voice_duration_counter == 0:
-                    rospy.loginfo("Aggregator: Human voice input duration finished.")
-
-            # --- END OF CORRECTED LOGIC ---
-
-            # Now, build the combined message using the correctly defined variables
+            # Build the combined message
             combined_input = [
                 self.input_matrix1[self.current_time_index].tolist(),  # Slot 1: Vision
                 robot_input_for_this_step.tolist(),                   # Slot 2: Robot Feedback
@@ -293,6 +273,7 @@ class VisionToDNF:
         else:
             rospy.loginfo(f"Completed publishing all time slices.")
             self.main_publishing_timer.shutdown()
+
 
 def main():
     try:
