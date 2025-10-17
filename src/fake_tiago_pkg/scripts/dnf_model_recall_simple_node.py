@@ -222,8 +222,8 @@ class DNFRecallNode:
             self.u_act += self.dt * (-self.u_act + conv_act + self.input_action_onset + self.h_u_act - 6.0 * f_wm * conv_wm)
             self.u_sim += (self.dt*2.0) * (-self.u_sim + conv_sim + self.input_action_onset_2 + self.h_u_sim - 6.0 * f_wm *conv_wm)
             self.u_wm += self.dt * (-self.u_wm + conv_wm + 6*((conv_f1*self.u_f1)*(conv_f2*self.u_f2)) + self.h_u_wm)
-            self.u_f1 += self.dt * (-self.u_f1 + conv_f1 + self.input_robot_feedback + self.h_f - 1*conv_wm)
-            self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_human_voice + self.h_f - 1*conv_wm)
+            self.u_f1 += self.dt * (-self.u_f1 + conv_f1 + self.input_robot_feedback + self.h_f - 2*conv_wm)
+            self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_human_voice + self.h_f - 2*conv_wm)
             self.u_error += self.dt * (-self.u_error + conv_error + self.h_f - 2*conv_sim)
 
             self.h_u_amem += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
