@@ -24,6 +24,12 @@ class DNFRecallNode:
         self.x = np.arange(-self.x_lim, self.x_lim + self.dx, self.dx)
         rospy.loginfo(f"Spatial grid size: {len(self.x)}")
 
+        self.input_positions = [-60, -20, 20, 40]
+        self.input_indices = [np.argmin(np.abs(self.x - pos)) for pos in self.input_positions]
+
+        self.u_sm_history = []  # list of lists (each timestep)
+        self.u_d_history = []
+
         # Threading lock for concurrency
         self.data_lock = threading.Lock()
 
@@ -264,18 +270,16 @@ class DNFRecallNode:
             self.h_u_amem += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
 
             # --- Threshold detection and history ---
-            input_positions = [-60, -20, 20, 40]
-            input_indices = [np.argmin(np.abs(self.x - pos)) for pos in input_positions]
 
 
-            self.u_act_history.append([self.u_act[idx] for idx in input_indices])
-            self.u_sim_history.append([self.u_sim[idx] for idx in input_indices])
-            self.u_wm_history.append([self.u_wm[idx] for idx in input_indices])
-            self.u_f1_history.append([self.u_f1[idx] for idx in input_indices])
-            self.u_f2_history.append([self.u_f2[idx] for idx in input_indices])
+            self.u_act_history.append([self.u_act[idx] for idx in self.input_indices])
+            self.u_sim_history.append([self.u_sim[idx] for idx in self.input_indices])
+            self.u_wm_history.append([self.u_wm[idx] for idx in self.input_indices])
+            self.u_f1_history.append([self.u_f1[idx] for idx in self.input_indices])
+            self.u_f2_history.append([self.u_f2[idx] for idx in self.input_indices])
 
-            for i, idx in enumerate(input_indices):
-                pos = input_positions[i]
+            for i, idx in enumerate(self.input_indices):
+                pos = self.input_positions[i]
                 if not self.threshold_crossed[pos] and self.u_act[idx] > self.theta_act:
                     rospy.loginfo(
                     f"[{elapsed_time:.2f}s | Sim Time: {current_sim_time:.1f}s] "
@@ -312,6 +316,9 @@ class DNFRecallNode:
         
         # Save adaptive memory for next trial
         self._save_adaptive_memory()
+
+        # Save time-course plot
+        self.save_timecourse_plot()
 
     def _save_adaptive_memory(self):
         """Save h_u_amem for use in the next trial (smoothed and accumulated)."""
@@ -356,6 +363,98 @@ class DNFRecallNode:
             
         except Exception as e:
             rospy.logerr(f"✗ Failed to save h_u_amem: {e}")
+
+
+    def save_timecourse_plot(self):
+        """Save time-course plots of u_f1, u_f2, u_act, u_sim at input positions."""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            data_dir = self.trial_data_path
+            os.makedirs(data_dir, exist_ok=True)
+
+            # Convert histories to arrays
+            u_f1_history = np.array(self.u_f1_history)
+            u_f2_history = np.array(self.u_f2_history)
+            u_act_history = np.array(self.u_act_history)
+            u_sim_history = np.array(self.u_sim_history)
+            timesteps = np.arange(len(u_f1_history)) * self.dt
+
+            theta_f = 1.5
+            theta_act = self.theta_act
+            theta_sim = self.theta_sim
+
+            # Check crossings and store them
+            crossings = {}
+            for i, pos in enumerate(self.input_positions):
+                crossings[pos] = {}
+                above_f1 = u_f1_history[:, i] >= theta_f
+                crossings[pos]['u_f1'] = (np.argmax(above_f1) * self.dt) if np.any(above_f1) else None
+
+                above_f2 = u_f2_history[:, i] >= theta_f
+                crossings[pos]['u_f2'] = (np.argmax(above_f2) * self.dt) if np.any(above_f2) else None
+
+                above_act = u_act_history[:, i] >= theta_act
+                crossings[pos]['u_act'] = (np.argmax(above_act) * self.dt) if np.any(above_act) else None
+
+                above_sim = u_sim_history[:, i] >= theta_sim
+                crossings[pos]['u_sim'] = (np.argmax(above_sim) * self.dt) if np.any(above_sim) else None
+
+                # Log the crossings
+                for field_name, cross_time in crossings[pos].items():
+                    if cross_time is not None:
+                        rospy.loginfo(f"{field_name} at x={pos} crosses theta at {cross_time:.2f}s")
+
+            # --- Plot time-courses (4 panels vertically stacked) ---
+            fig, axes = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+            field_data = [
+                (u_act_history, theta_act, "u_act"),
+                (u_sim_history, theta_sim, "u_sim"),
+                (u_f1_history, theta_f, "u_f1"),
+                (u_f2_history, theta_f, "u_f2"),
+            ]
+
+            for ax, (history, theta, label) in zip(axes, field_data):
+                for i, pos in enumerate(self.input_positions):
+                    ax.plot(timesteps, history[:, i], label=f"x={pos}")
+                ax.axhline(theta, color="r", linestyle="--", label=f"θ={theta}")
+                ax.set_ylabel(label)
+                ax.grid(True)
+                ax.legend()
+
+            ax1, ax2, ax3, ax4 = axes
+
+            ax1.set_ylim(-5, 5)
+            ax2.set_ylim(-5, 5)
+            ax3.set_ylim(-5, 5)
+            ax4.set_ylim(-5, 5)
+
+            axes[-1].set_xlabel("Time (s)")
+            fig.suptitle("Field Activity Over Time", fontsize=14)
+            fig.tight_layout(rect=[0, 0, 1, 0.97])
+
+            # Save the figure
+            fig_path = os.path.join(data_dir, f"timecourse_{timestamp}.png")
+            fig.savefig(fig_path)
+            plt.close(fig)
+            rospy.loginfo(f"✓ Time-course plot saved: {fig_path}")
+
+            # --- Save data in compressed file ---
+            np.savez_compressed(
+                os.path.join(data_dir, f"dnf_recall_results_{timestamp}.npz"),
+                timesteps=timesteps,
+                u_act_history=u_act_history,
+                u_sim_history=u_sim_history,
+                u_f1_history=u_f1_history,
+                u_f2_history=u_f2_history,
+                input_positions=np.array(self.input_positions),
+                threshold_crossings=crossings
+            )
+            rospy.loginfo(f"✓ Data saved: dnf_recall_results_{timestamp}.npz")
+
+        except Exception as e:
+            rospy.logerr(f"✗ Failed to save time-course plot/data: {e}")
+
+            
 
 
 
