@@ -60,7 +60,7 @@ class FakeRobotController:
     def simulate_arm_movement(self, target_pose):
         """Simulates the time it takes for the arm to move."""
         rospy.loginfo("Fake Arm: Movement started...")
-        rospy.sleep(3.0) # Simulate 3 seconds of movement time
+        rospy.sleep(1.0) # Simulate 1 seconds of movement time
         with self._lock:
             self.current_pose = target_pose
         rospy.loginfo("Fake Arm: Movement finished.")

@@ -244,8 +244,10 @@ class DNFRecallNode:
             conv_f1 = conv(self.u_f1, self.w_hat_f, self.theta_f)
             conv_f2 = conv(self.u_f2, self.w_hat_f, self.theta_f)
             conv_error = conv(self.u_error, self.w_hat_act, self.theta_error)
+            # conv_error = conv(self.u_error, self.w_hat_wm, self.theta_error)
 
             f_wm = np.heaviside(self.u_wm - self.theta_wm, 1)
+            f_sim = np.heaviside(self.u_sim - self.theta_sim, 1)
 
             # --- Update field dynamics ---
             self.h_u_act += self.dt / self.tau_h_act
@@ -256,7 +258,7 @@ class DNFRecallNode:
             self.u_wm += self.dt * (-self.u_wm + conv_wm + 6*((conv_f1*self.u_f1)*(conv_f2*self.u_f2)) + self.h_u_wm)
             self.u_f1 += self.dt * (-self.u_f1 + conv_f1 + self.input_robot_feedback + self.h_f - 2*conv_wm)
             self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_human_voice + self.h_f - 2*conv_wm)
-            self.u_error += self.dt * (-self.u_error + conv_error + self.h_f - 2*conv_sim)
+            self.u_error += self.dt * (-self.u_error + conv_error + self.h_f - 2*conv_sim*f_sim)
 
             # Update adaptive memory (this will be saved for next trial)
             self.h_u_amem += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
