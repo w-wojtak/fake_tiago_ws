@@ -24,6 +24,8 @@ class DNFRecallNode:
         self.x = np.arange(-self.x_lim, self.x_lim + self.dx, self.dx)
         rospy.loginfo(f"Spatial grid size: {len(self.x)}")
 
+        self.h_u_amem_current_trial  = np.zeros(np.shape(self.x))
+
         self.input_positions = [-60, -20, 20, 40]
         self.input_indices = [np.argmin(np.abs(self.x - pos)) for pos in self.input_positions]
 
@@ -171,7 +173,7 @@ class DNFRecallNode:
         # Decay rates
         self.tau_h_act = 20
         self.tau_h_sim = 10
-        self.beta_adapt = 0.01
+        self.beta_adapt = 0.0015
 
         # Kernels (precompute FFTs)
         self.w_hat_act = np.fft.fft(kernel_gauss(self.x, 1.5, 0.8, 0.0))
@@ -260,14 +262,15 @@ class DNFRecallNode:
             self.h_u_sim += self.dt / self.tau_h_sim
 
             self.u_act += self.dt * (-self.u_act + conv_act + self.input_action_onset + self.h_u_act - 6.0 * f_wm * conv_wm)
-            self.u_sim += (self.dt*2.0) * (-self.u_sim + conv_sim + self.input_action_onset_2 + self.h_u_sim - 6.0 * f_wm *conv_wm)
+            self.u_sim += (self.dt*3.0) * (-self.u_sim + conv_sim + self.input_action_onset_2 + self.h_u_sim - 6.0 * f_wm *conv_wm)
             self.u_wm += self.dt * (-self.u_wm + conv_wm + 6*((conv_f1*self.u_f1)*(conv_f2*self.u_f2)) + self.h_u_wm)
             self.u_f1 += self.dt * (-self.u_f1 + conv_f1 + self.input_robot_feedback + self.h_f - 2*conv_wm)
             self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_human_voice + self.h_f - 2*conv_wm)
             self.u_error += self.dt * (-self.u_error + conv_error + self.h_f - 2*conv_sim*f_sim)
 
             # Update adaptive memory (this will be saved for next trial)
-            self.h_u_amem += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
+            # self.h_u_amem += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
+            self.h_u_amem_current_trial += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
 
             # --- Threshold detection and history ---
 
@@ -329,7 +332,9 @@ class DNFRecallNode:
                 rospy.loginfo(f"Created directory: {self.trial_data_path}")
             
             # Apply Gaussian smoothing
-            h_u_amem_smoothed = gaussian_filter1d(self.h_u_amem, sigma=10)
+            # h_u_amem_smoothed = gaussian_filter1d(self.h_u_amem, sigma=10)
+            h_u_amem_smoothed = gaussian_filter1d(self.h_u_amem_current_trial, sigma=10)
+            
             
             # Accumulate with previous trial if not trial 1
             if self.trial_number > 1:
@@ -404,13 +409,34 @@ class DNFRecallNode:
                     if cross_time is not None:
                         rospy.loginfo(f"{field_name} at x={pos} crosses theta at {cross_time:.2f}s")
 
+
+            rospy.loginfo("--- Threshold Crossing Summary ---")
+
+            # Define the fields you want to summarize
+            field_names_to_summarize = ['u_act', 'u_sim', 'u_f1', 'u_f2']
+
+            # Restructure the data from being grouped by position to being grouped by field
+            summary_crossings = {name: [] for name in field_names_to_summarize}
+
+            for pos in self.input_positions: # Iterate in order of positions
+                for field_name in field_names_to_summarize:
+                    cross_time = crossings[pos].get(field_name)
+                    if cross_time is not None:
+                        summary_crossings[field_name].append(cross_time)
+            
+            # Print the summary in the desired format
+            for field_name, times_list in summary_crossings.items():
+                # Format each time to ".2f" and join with spaces
+                times_str = " ".join([f"{t:.2f}" for t in times_list])
+                rospy.loginfo(f"{field_name} threshold crossings: {times_str}")
+
             # --- Plot time-courses (4 panels vertically stacked) ---
             fig, axes = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
             field_data = [
                 (u_act_history, theta_act, "u_act"),
                 (u_sim_history, theta_sim, "u_sim"),
-                (u_f1_history, theta_f, "u_f1"),
-                (u_f2_history, theta_f, "u_f2"),
+                (u_f1_history, theta_f, "u_f1 (robot)"),
+                (u_f2_history, theta_f, "u_f2 (human)"),
             ]
 
             for ax, (history, theta, label) in zip(axes, field_data):
@@ -433,14 +459,19 @@ class DNFRecallNode:
             fig.tight_layout(rect=[0, 0, 1, 0.97])
 
             # Save the figure
-            fig_path = os.path.join(data_dir, f"timecourse_{timestamp}.png")
+            fig_path = os.path.join(
+                data_dir, f"timecourse_trial{self.trial_number}_{timestamp}.png"
+            )
             fig.savefig(fig_path)
             plt.close(fig)
             rospy.loginfo(f"✓ Time-course plot saved: {fig_path}")
 
             # --- Save data in compressed file ---
+            npz_path = os.path.join(
+                data_dir, f"dnf_recall_results_trial{self.trial_number}_{timestamp}.npz"
+            )
             np.savez_compressed(
-                os.path.join(data_dir, f"dnf_recall_results_{timestamp}.npz"),
+                npz_path,
                 timesteps=timesteps,
                 u_act_history=u_act_history,
                 u_sim_history=u_sim_history,
@@ -449,7 +480,7 @@ class DNFRecallNode:
                 input_positions=np.array(self.input_positions),
                 threshold_crossings=crossings
             )
-            rospy.loginfo(f"✓ Data saved: dnf_recall_results_{timestamp}.npz")
+            rospy.loginfo(f"✓ Data saved: {npz_path}")
 
         except Exception as e:
             rospy.logerr(f"✗ Failed to save time-course plot/data: {e}")
