@@ -282,6 +282,8 @@ class DNFRecallNode:
             self.u_wm_history.append([self.u_wm[idx] for idx in self.input_indices])
             self.u_f1_history.append([self.u_f1[idx] for idx in self.input_indices])
             self.u_f2_history.append([self.u_f2[idx] for idx in self.input_indices])
+            self.u_error_history.append([self.u_error[idx] for idx in self.input_indices])
+
 
             for i, idx in enumerate(self.input_indices):
                 pos = self.input_positions[i]
@@ -384,11 +386,13 @@ class DNFRecallNode:
             u_f2_history = np.array(self.u_f2_history)
             u_act_history = np.array(self.u_act_history)
             u_sim_history = np.array(self.u_sim_history)
+            u_error_history = np.array(self.u_error_history)
             timesteps = np.arange(len(u_f1_history)) * self.dt
 
             theta_f = 1.5
             theta_act = self.theta_act
             theta_sim = self.theta_sim
+            theta_error = self.theta_error
 
             # Check crossings and store them
             crossings = {}
@@ -432,13 +436,14 @@ class DNFRecallNode:
                 times_str = " ".join([f"{t:.2f}" for t in times_list])
                 rospy.loginfo(f"{field_name} threshold crossings: {times_str}")
 
-            # --- Plot time-courses (4 panels vertically stacked) ---
-            fig, axes = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+            # --- Plot time-courses (5 panels vertically stacked) ---
+            fig, axes = plt.subplots(5, 1, figsize=(10, 10), sharex=True)
             field_data = [
                 (u_act_history, theta_act, "u_act"),
                 (u_sim_history, theta_sim, "u_sim"),
                 (u_f1_history, theta_f, "u_f1 (robot)"),
                 (u_f2_history, theta_f, "u_f2 (human)"),
+                (u_error_history, theta_error, "u_error"),
             ]
 
             for ax, (history, theta, label) in zip(axes, field_data):
@@ -449,12 +454,13 @@ class DNFRecallNode:
                 ax.grid(True)
                 ax.legend()
 
-            ax1, ax2, ax3, ax4 = axes
+            ax1, ax2, ax3, ax4, ax5 = axes
 
             ax1.set_ylim(-5, 5)
             ax2.set_ylim(-5, 5)
             ax3.set_ylim(-5, 5)
             ax4.set_ylim(-5, 5)
+            ax5.set_ylim(-5, 5)
 
             axes[-1].set_xlabel("Time (s)")
             fig.suptitle("Field Activity Over Time", fontsize=14)
@@ -479,6 +485,7 @@ class DNFRecallNode:
                 u_sim_history=u_sim_history,
                 u_f1_history=u_f1_history,
                 u_f2_history=u_f2_history,
+                u_error_history=u_error_history,
                 input_positions=np.array(self.input_positions),
                 threshold_crossings=crossings
             )
