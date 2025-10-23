@@ -16,4 +16,5 @@ __pycache__/
 
 # data / outputs (keep data out of git, you can save processed results separately)
 data_basic/
+data_extended/
 data/
