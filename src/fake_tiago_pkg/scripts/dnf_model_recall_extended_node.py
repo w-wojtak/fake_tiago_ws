@@ -268,7 +268,7 @@ class DNFRecallNode:
             self.u_wm += self.dt * (-self.u_wm + conv_wm + 6*((conv_f1*self.u_f1)*(conv_f2*self.u_f2)) + self.h_u_wm)
             self.u_f1 += self.dt * (-self.u_f1 + conv_f1 + self.input_robot_feedback + self.h_f - 2*conv_wm)
             self.u_f2 += self.dt * (-self.u_f2 + conv_f2 + self.input_human_voice + self.h_f - 2*conv_wm)
-            self.u_error += self.dt * (-self.u_error + conv_error + self.h_f - 4*conv_sim*f_sim + (0.5*self.u_f2*f_uf2))
+            self.u_error += self.dt * (-self.u_error + conv_error + self.h_f - 4*conv_sim*f_sim + (0.8*self.u_f2*f_uf2))
 
             # Update adaptive memory (this will be saved for next trial)
             # self.h_u_amem += self.beta_adapt*(1 - (conv_f2*conv_f1))*(conv_f1 - conv_f2)
@@ -296,6 +296,35 @@ class DNFRecallNode:
                     msg.data = [float(pos)]
                     self.publisher.publish(msg)
                     self.threshold_crossed[pos] = True
+
+
+            # Map input_positions to object labels
+            object_positions = [-60, -40, -20, 0, 20, 40, 60]
+            object_labels = ['base', 'blue box', 'load', 'tool 1', 'bearing', 'motor', 'tool 2']
+
+            # Function to get closest object label
+            def get_closest_object_label(pos):
+                idx = np.argmin(np.abs(np.array(object_positions) - pos))
+                return object_labels[idx]
+
+            # --- u_error threshold detection with correct object from u_sim ---
+            for i, idx in enumerate(self.input_indices):
+                pos = self.input_positions[i]
+
+                if self.u_error[idx] > self.theta_error:
+                    # Wrong object (current error position)
+                    wrong_obj = get_closest_object_label(pos)
+
+                    # Correct object: position of maximum in u_sim
+                    sim_max_idx = np.argmax(self.u_sim)
+                    sim_max_pos = self.x[sim_max_idx]
+                    correct_obj = get_closest_object_label(sim_max_pos)
+
+                    rospy.loginfo(
+                        f"[{elapsed_time:.2f}s | Sim Time: {current_sim_time:.1f}s] "
+                        f"ERROR: '{wrong_obj}' is not correct, you should use '{correct_obj}'"
+                    )
+
 
     # ------------------ Plotting ------------------
     def update_plot(self):

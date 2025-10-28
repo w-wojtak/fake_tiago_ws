@@ -25,7 +25,9 @@
     <node name="robot_vision_bridge_node" pkg="fake_tiago_pkg" type="robot_vision_bridge.py" output="screen" />
           
     <!-- Translates JSON detections to DNF-compatible matrices -->
-    <node name="vision_to_dnf_node" pkg="fake_tiago_pkg" type="vision_to_dnf_node.py" output="screen" />
+    <!-- <node name="vision_to_dnf_node" pkg="fake_tiago_pkg" type="vision_to_dnf_node.py" output="screen" /> -->
+    <node name="vision_to_dnf_novoice_node" pkg="fake_tiago_pkg" type="vision_to_dnf_novoice_node.py" output="screen" />
+    
 
     <!-- Simulates human voice commands -->
     <node name="fake_voice_commander" pkg="fake_tiago_pkg" type="fake_voice_commander.py" output="screen" />
