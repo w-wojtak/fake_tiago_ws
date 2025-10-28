@@ -36,6 +36,9 @@ class VisionToDNF:
         rospy.Subscriber('/simulation/robot_feedback', String, self.robot_feedback_callback)
         rospy.Subscriber('/voice_command', String, self.voice_command_callback)
 
+        self.latest_voice_vector = np.zeros_like(self.x)
+        rospy.Subscriber('/voice_input_vector', Float32MultiArray, self.voice_input_callback)
+
         # Gaussian parameters
         self.amplitude = 5.0
         self.width = 2.0
@@ -75,6 +78,12 @@ class VisionToDNF:
         rospy.Timer(rospy.Duration(0.5), self.wait_for_subscriber_and_start, oneshot=True)
 
         rospy.loginfo(f"Pickup detection threshold set to: {self.pickup_detection_threshold}m (10cm)")
+
+    def voice_input_callback(self, msg):
+        """Receives a Float32MultiArray voice vector from the voice bridge"""
+        self.latest_voice_vector = np.array(msg.data)
+        rospy.loginfo("Bridge: received new voice vector (max=%.2f)" % np.max(self.latest_voice_vector))
+
 
 
     def voice_command_callback(self, msg):
@@ -243,7 +252,8 @@ class VisionToDNF:
             
             # Use accumulated inputs (these persist forever once set)
             robot_input_for_this_step = self.accumulated_robot_feedback
-            human_input_for_this_step = self.accumulated_human_voice
+            # human_input_for_this_step = self.accumulated_human_voice
+            human_input_for_this_step = self.latest_voice_vector
 
             # Build the combined message
             combined_input = [

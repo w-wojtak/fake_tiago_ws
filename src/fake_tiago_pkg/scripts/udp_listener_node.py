@@ -5,64 +5,74 @@ from std_msgs.msg import String
 import socket
 import threading
 
-UDP_IP = "0.0.0.0"
-UDP_PORT = 5005
+UDP_LISTEN_IP = "0.0.0.0"
+UDP_LISTEN_PORT = 5005
 
-class UDPListenerNode(object):
+UDP_SEND_IP = "10.205.240.222"
+UDP_SEND_PORT = 5006
+
+# Commands and responses
+COMMANDS = ["give_motor", "give_load", "give_bearing", "give_base"]
+RESPONSES = {
+    "give_motor": "Here is the motor.",
+    "give_load": "Here is the load.",
+    "give_bearing": "Here is the bearing.",
+    "give_base": "Here is the base."
+}
+
+# Set how many times each command can be published (1 or 2)
+REPEAT_COUNT = 1  # change to 2 if you want each command allowed twice
+
+class VoiceListener:
     def __init__(self):
-        # Initialize the ROS node
-        rospy.init_node('udp_listener_node', anonymous=True)
-        self.filtered_publisher = rospy.Publisher(
-            'voice_command_filtered', String, queue_size=10)
+        rospy.init_node('voice_listener', anonymous=True)
 
-        # Track "start" and "finished" to publish only once
-        self.sent_flags = {
-            "start": False,
-            "finished": False
-        }
+        # ROS publisher
+        self.pub = rospy.Publisher('voice_message', String, queue_size=10)
 
-        rospy.loginfo('Listening for UDP messages on port %d', UDP_PORT)
+        # Track how many times each command has been published
+        self.sent_counts = {cmd: 0 for cmd in COMMANDS}
+
+        # UDP socket for sending confirmations
+        self.sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        rospy.loginfo(f"Listening for UDP messages on port {UDP_LISTEN_PORT}...")
+
         self.thread = threading.Thread(target=self.listen_loop)
         self.thread.daemon = True
         self.thread.start()
 
-    def filter_message(self, message):
-        """
-        Returns message if it should be forwarded, otherwise None.
-        """
-        message = message.lower().strip()
-        if message in self.sent_flags:
-            if not self.sent_flags[message]:
-                self.sent_flags[message] = True
-                return message
-            else:
-                return None  # Already sent once, skip
-        return message  # Other commands always forwarded
-
     def listen_loop(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind((UDP_IP, UDP_PORT))
+        sock_recv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock_recv.bind((UDP_LISTEN_IP, UDP_LISTEN_PORT))
+
         while not rospy.is_shutdown():
             try:
-                data, _ = sock.recvfrom(1024)
+                data, addr = sock_recv.recvfrom(1024)
                 message = data.decode().strip()
-                rospy.loginfo("Received: '%s'", message)
 
-                filtered = self.filter_message(message)
-                if filtered:
-                    self.filtered_publisher.publish(String(data=filtered))
-                    rospy.loginfo("Published filtered message: '%s'", filtered)
+                if message in COMMANDS:
+                    if self.sent_counts[message] < REPEAT_COUNT:
+                        rospy.loginfo(f"Received command: {message}")
+                        self.pub.publish(String(data=message))
+                        self.sent_counts[message] += 1
+
+                        # Send back confirmation
+                        response_text = RESPONSES.get(message, "")
+                        if response_text:
+                            self.sock_send.sendto(response_text.encode(), (UDP_SEND_IP, UDP_SEND_PORT))
+                            rospy.loginfo(f"Sent confirmation: '{response_text}'")
+                    else:
+                        rospy.loginfo(f"Command '{message}' ignored (already published {REPEAT_COUNT} times).")
                 else:
-                    rospy.loginfo("Filtered out (duplicate or unwanted).")
+                    rospy.loginfo(f"Ignored unknown command: {message}")
+
             except Exception as e:
-                rospy.logerr("Error in UDP listener: %s", str(e))
+                rospy.logerr(f"Error in UDP listener: {e}")
 
 def main():
-    node = UDPListenerNode()
-    try:
-        rospy.spin()
-    except KeyboardInterrupt:
-        pass
+    node = VoiceListener()
+    rospy.spin()
 
 if __name__ == '__main__':
     main()
