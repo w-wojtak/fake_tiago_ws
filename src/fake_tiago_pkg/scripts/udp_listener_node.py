@@ -21,7 +21,7 @@ RESPONSES = {
 }
 
 # Set how many times each command can be published (1 or 2)
-REPEAT_COUNT = 1  # change to 2 if you want each command allowed twice
+REPEAT_COUNT = 2  # change to 2 if you want each command allowed twice
 
 class VoiceListener:
     def __init__(self):

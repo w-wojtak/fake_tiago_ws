@@ -72,6 +72,8 @@ class DNFRecallNode:
         self.u_act_history, self.u_sim_history = [], []
         self.u_wm_history, self.u_f1_history, self.u_f2_history, self.u_error_history = [], [], [], []
 
+        self.error_threshold_crossed = {pos: False for pos in self.input_positions}
+
         # --- Subscribers and timers ---
         self.subscription = rospy.Subscriber(
             '/dnf_inputs',
@@ -322,8 +324,8 @@ class DNFRecallNode:
 
 
             # # Map input_positions to object labels
-            # object_positions = [-60, -40, -20, 0, 20, 40, 60]
-            # object_labels = ['base', 'blue box', 'load', 'tool 1', 'bearing', 'motor', 'tool 2']
+            object_positions = [-60, -40, -20, 0, 20, 40, 60]
+            object_labels = ['base', 'blue box', 'load', 'tool 1', 'bearing', 'motor', 'tool 2']
 
             # # Function to get closest object label
             # def get_closest_object_label(pos):
@@ -340,29 +342,29 @@ class DNFRecallNode:
             # --- u_error threshold detection with correct object from u_sim ---
             for i, idx in enumerate(self.input_indices):
                 pos = self.input_positions[i]
+                if not self.error_threshold_crossed[pos] and self.u_error[idx] > self.theta_error:
+                    # Determine correct object from u_sim
+                    correct_idx = np.argmax(self.u_sim)
+                    correct_pos = self.x[correct_idx]
+                    object_name = None
+                    for label, obj_pos in zip(object_labels, object_positions):
+                        if np.isclose(obj_pos, correct_pos, atol=2.0):
+                            object_name = label
+                            break
 
-                if self.u_error[idx] > self.theta_error:
-                    # Find the "wrong" and "correct" object names
                     wrong_obj = self.get_closest_object_label(pos)
-                    sim_max_idx = np.argmax(self.u_sim)
-                    sim_max_pos = self.x[sim_max_idx]
-                    correct_obj = self.get_closest_object_label(sim_max_pos)
 
-                    # Print to terminal
-                    rospy.loginfo(
-                        f"[{elapsed_time:.2f}s | Sim Time: {current_sim_time:.1f}s] "
-                        f"ERROR: '{wrong_obj}' is not correct, you should use '{correct_obj}'"
-                    )
+                    msg_text = f"ERROR: '{wrong_obj}' is not correct, you should use '{object_name}'"
+                    rospy.loginfo(msg_text)
 
-                    # Publish to TTS if cooldown expired
-                    now = time.time()
-                    last_sent = self.error_last_sent.get(pos, 0.0)
-                    if now - last_sent >= self.error_cooldown:
-                        msg_text = f"Error: {wrong_obj} is not correct now to use. You should use {correct_obj}."
-                        msg_text = self.sanitize_for_tts(msg_text)
-                        self.response_pub.publish(String(msg_text))
-                        rospy.loginfo(f"[TTS] Published: {msg_text}")
-                        self.error_last_sent[pos] = now
+                    # --- Publish to /response_command ---
+                    ros_msg = String()
+                    ros_msg.data = msg_text
+                    self.response_pub.publish(ros_msg)
+
+                    # Mark as sent
+                    self.error_threshold_crossed[pos] = True
+
 
 
     # ------------------ Plotting ------------------

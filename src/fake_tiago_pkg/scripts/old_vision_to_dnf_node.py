@@ -36,6 +36,14 @@ class VisionToDNF:
         rospy.Subscriber('/simulation/robot_feedback', String, self.robot_feedback_callback)
         rospy.Subscriber('/voice_command', String, self.voice_command_callback)
 
+        # inside __init__ of VisionToDNFBridge
+        self.sub_response_command = rospy.Subscriber(
+            '/response_command',
+            String,
+            self.response_command_callback
+        )
+
+
         self.latest_voice_vector = np.zeros_like(self.x)
         rospy.Subscriber('/voice_input_vector', Float32MultiArray, self.voice_input_callback)
 
@@ -58,6 +66,9 @@ class VisionToDNF:
 
         # Lists to store active gaussians
         self.active_gaussians = []
+
+        self.active_human_voice_objects = set()
+        self.blocked_human_voice_objects = set()
 
         # Initialize input matrices
         self.input_matrix1 = np.zeros((len(self.t), len(self.x)))
@@ -85,15 +96,50 @@ class VisionToDNF:
         rospy.loginfo("Bridge: received new voice vector (max=%.2f)" % np.max(self.latest_voice_vector))
 
 
+    # Response/reset callback
+def response_command_callback(self, msg):
+    import re
+    match = re.search(r"'(.+?)'", msg.data)
+    if match:
+        object_name = match.group(1)
+        rospy.loginfo(f"************** Resetting human voice input around '{object_name}' due to response.")
+        if object_name in self.object_positions:
+            center = self.object_positions[object_name]
+            mask = (self.x >= center - 20) & (self.x <= center + 20)
+
+            # Zero the latest voice vector at this position
+            self.latest_voice_vector[mask] = 0
+
+            # Block future additions until new voice command arrives
+            self.blocked_human_voice_objects.add(object_name)
+
+            # Remove from active objects
+            if object_name in self.active_human_voice_objects:
+                self.active_human_voice_objects.remove(object_name)
+
+
 
     def voice_command_callback(self, msg):
-        """Receives a voice command and adds a permanent Gaussian input."""
         object_name = msg.data
         if object_name in self.object_positions:
             center = self.object_positions[object_name]
-            rospy.loginfo(f"Aggregator: Heard voice command for '{object_name}'. Creating PERMANENT Gaussian for DNF.")
-            new_gaussian = self.gaussian(center=center, amplitude=5.0, width=2.0)
-            self.accumulated_human_voice += new_gaussian
+
+            # Unblock if previously blocked
+            if object_name in self.blocked_human_voice_objects:
+                self.blocked_human_voice_objects.remove(object_name)
+                rospy.loginfo(f"Unblocking '{object_name}' after new voice command.")
+
+            # Only add if not already active
+            if object_name not in self.active_human_voice_objects:
+                rospy.loginfo(f"Aggregator: Heard voice command for '{object_name}'. Applying Gaussian to latest_voice_vector.")
+
+                # Apply Gaussian directly to latest_voice_vector
+                new_gaussian = self.gaussian(center=center, amplitude=5.0, width=2.0)
+                mask = (self.x >= center - 20) & (self.x <= center + 20)
+                self.latest_voice_vector[mask] = new_gaussian[mask]
+
+                # Mark as active
+                self.active_human_voice_objects.add(object_name)
 
 
     def robot_feedback_callback(self, msg):
