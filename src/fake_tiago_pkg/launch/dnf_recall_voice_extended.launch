@@ -34,6 +34,12 @@
     <node name="voice_to_dnf_bridge" pkg="fake_tiago_pkg" type="voice_to_dnf_bridge.py" output="screen" />
 
 
+    <!-- Sends response messages via UDP to Windows TTS -->
+    <node name="udp_response_sender" pkg="fake_tiago_pkg" type="udp_response_sender_node.py" output="screen">
+        <param name="target_ip" value="192.168.1.45" />
+        <param name="target_port" value="5005" />
+    </node>
+
     <!-- ======================================================================================= -->
     <!--                                  DNF RECALL NODE (The Brain)                            -->
     <!-- ======================================================================================= -->
