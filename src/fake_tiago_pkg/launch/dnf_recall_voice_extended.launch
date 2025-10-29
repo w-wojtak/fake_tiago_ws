@@ -24,14 +24,15 @@
     <!-- Translates AR markers to simple JSON -->
     <node name="robot_vision_bridge_node" pkg="fake_tiago_pkg" type="robot_vision_bridge.py" output="screen" />
           
-    <!-- Translates JSON detections to DNF-compatible matrices -->
-    <node name="vision_to_dnf_node" pkg="fake_tiago_pkg" type="vision_to_dnf_node.py" output="screen" />
+    <!-- ======================================================================================= -->
+    <!--                             INPUT PROCESSING NODES                                      -->
+    <!-- ======================================================================================= -->
 
-    <!-- Optional: Simulated human voice commands -->
-    <!-- <node name="fake_voice_commander" pkg="fake_tiago_pkg" type="fake_voice_commander.py" output="screen" /> -->
+    <!-- [CHANGED] This is the new aggregator node that combines all inputs for the DNF. -->
+    <node name="vision_to_dnf_aggregator_node" pkg="fake_tiago_pkg" type="vision_to_dnf_aggregator.py" output="screen" />
 
-    <!-- Or: Replace the fake voice with real speech input -->
-    <node name="voice_to_dnf_bridge" pkg="fake_tiago_pkg" type="voice_to_dnf_bridge.py" output="screen" />
+    <!-- [CHANGED] This is the new voice parser. It turns "give_motor" into "motor". -->
+    <node name="voice_command_parser_node" pkg="fake_tiago_pkg" type="voice_command_parser.py" output="screen" />
 
 
     <!-- Sends response messages via UDP to Windows TTS -->

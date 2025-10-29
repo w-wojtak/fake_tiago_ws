@@ -12,12 +12,13 @@
     <!-- ======================================================================================= -->
     <node name="fake_ar_publisher_node" pkg="fake_tiago_pkg" type="fake_ar_publisher.py" output="screen" />
     <node name="robot_vision_bridge_node" pkg="fake_tiago_pkg" type="robot_vision_bridge.py" output="screen" />
-    <node name="vision_to_dnf_node" pkg="fake_tiago_pkg" type="vision_to_dnf_node.py" output="screen" />
-
+    <!-- <node name="vision_to_dnf_node" pkg="fake_tiago_pkg" type="vision_to_dnf_node.py" output="screen" /> -->
+   <node name="vision_to_dnf_aggregator_node" pkg="fake_tiago_pkg" type="vision_to_dnf_aggregator.py" output="screen" />
     <!-- ======================================================================================= -->
     <!--                                   VOICE BRIDGE                                           -->
     <!-- ======================================================================================= -->
-    <node name="voice_to_dnf_bridge" pkg="fake_tiago_pkg" type="voice_to_dnf_bridge.py" output="screen" />
+    <!-- <node name="voice_to_dnf_bridge" pkg="fake_tiago_pkg" type="voice_to_dnf_bridge.py" output="screen" /> -->
+    <node name="voice_command_parser_node" pkg="fake_tiago_pkg" type="voice_command_parser.py" output="screen" />
 
     <!-- ======================================================================================= -->
     <!--                                  DNF RECALL NODE                                        -->
