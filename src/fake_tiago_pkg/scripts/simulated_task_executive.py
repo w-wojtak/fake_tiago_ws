@@ -19,6 +19,9 @@ class TaskExecutiveNode:
         
         rospy.loginfo("MINIMAL Task Executive started. Awaiting DNF predictions.")
 
+        self.automatic_robot_feedback = True  # default ON
+        # turn this off for sending info about robot waiting manually
+
     def dnf_prediction_callback(self, msg):
         """Called when the DNF predicts an action."""
         if not msg.data: return
@@ -29,9 +32,12 @@ class TaskExecutiveNode:
         if object_name:
             rospy.loginfo(f"Executive: Received DNF prediction for '{object_name}'.")
             
-            # Use a thread to handle the delay and response, to avoid blocking the callback.
-            thread = threading.Thread(target=self.handle_robot_response, args=(object_name,))
-            thread.start()
+            if self.automatic_robot_feedback:
+                # Use a thread to handle the delay and response
+                t = threading.Thread(target=self.handle_robot_response, args=(object_name,))
+                t.start()
+            else:
+                rospy.loginfo("Automatic robot feedback is OFF. Waiting for manual input...")
 
     def handle_robot_response(self, object_name):
         """Simulates the robot acting and then sends all necessary feedback."""
