@@ -7,9 +7,9 @@ from std_msgs.msg import Float32MultiArray, String
 from time import time
 import re
 
-class VisionToDNFAggregator: # Renamed for clarity
+class VisionToDNFAggregator:
     def __init__(self):
-        rospy.init_node('vision_to_dnf_aggregator_node', anonymous=True) # Renamed for clarity
+        rospy.init_node('vision_to_dnf_aggregator_node', anonymous=True)
 
         self.x_lim, self.t_lim = 80, 15
         self.dx, self.dt = 0.2, 0.1
@@ -25,8 +25,11 @@ class VisionToDNFAggregator: # Renamed for clarity
         rospy.Subscriber('/simulation/robot_feedback', String, self.robot_feedback_callback)
         self.sub_response_command = rospy.Subscriber('/response_command', String, self.response_command_callback)
 
-        # --- CHANGED: Subscribing to the new, simple topic from the parser node ---
+        # Subscribing to the simple topic from the parser node
         rospy.Subscriber('/parsed_voice_command', String, self.voice_command_callback)
+
+        # manual feedback to create inputs to u_f1 in case they don't come from the robot
+        rospy.Subscriber('/manual_robot_feedback', String, self.manual_robot_feedback_callback)
 
         self.accumulated_robot_feedback = np.zeros_like(self.x)
         self.amplitude = 5.0
@@ -46,6 +49,17 @@ class VisionToDNFAggregator: # Renamed for clarity
         rospy.loginfo("Vision→DNF aggregator node initialized.")
         rospy.Timer(rospy.Duration(0.5), self.wait_for_subscriber_and_start, oneshot=True)
 
+
+    def manual_robot_feedback_callback(self, msg):
+        """Receive manual robot feedback and apply exactly as automatic feedback."""
+        object_name = msg.data
+        if object_name in self.object_positions:
+            center = self.object_positions[object_name]
+            rospy.loginfo(f"Aggregator: Received MANUAL robot feedback for '{object_name}'. Applying Gaussian.")
+            new_gaussian = self.gaussian(center=center, amplitude=5.0, width=2.0)
+            self.accumulated_robot_feedback += new_gaussian
+
+
     def response_command_callback(self, msg):
         match = re.search(r"'(.+?)'", msg.data)
         if match:
@@ -54,7 +68,7 @@ class VisionToDNFAggregator: # Renamed for clarity
             if object_name in self.active_human_voice_objects:
                 self.active_human_voice_objects.remove(object_name)
 
-    # --- CHANGED: This callback is now extremely simple ---
+
     def voice_command_callback(self, msg):
         """Receives a simple object name and activates its Gaussian input."""
         object_name = msg.data
@@ -67,7 +81,7 @@ class VisionToDNFAggregator: # Renamed for clarity
         else:
             rospy.logwarn(f"Received unknown object name '{object_name}' on /parsed_voice_command")
 
-    # The rest of the file is the same as the correct version from our last attempt
+
     def robot_feedback_callback(self, msg):
         object_name = msg.data
         if object_name in self.object_positions:
@@ -122,7 +136,7 @@ class VisionToDNFAggregator: # Renamed for clarity
             rospy.loginfo("Completed publishing all time slices.")
             self.main_publishing_timer.shutdown()
 
-    # The rest of the vision/pickup methods are unchanged...
+
     def calculate_movement(self, old_pos, new_pos):
         dx = new_pos['x'] - old_pos['x']; dy = new_pos['y'] - old_pos['y']; dz = new_pos['z'] - old_pos['z']
         return np.sqrt(dx**2 + dy**2 + dz**2)
